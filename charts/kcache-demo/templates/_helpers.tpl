@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+#
+# SPDX-License-Identifier: Apache-2.0
+
 {{- define "kcache-demo.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}

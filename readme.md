@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # kcache
 
 > **Early alpha.** HTTP only. Expect breaking changes.

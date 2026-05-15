@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+//
+// SPDX-License-Identifier: Apache-2.0
+
 // Package iface manages TC BPF attachment to pod veth interfaces.
 // It attaches tc_ingress and tc_egress programs to every veth it discovers,
 // and watches for new veths as pods start.

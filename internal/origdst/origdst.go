@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+//
+// SPDX-License-Identifier: Apache-2.0
+
 // Package origdst resolves the original destination of a BPF-intercepted
 // TCP connection by looking up the orig_dst BPF map keyed by {src_ip, src_port}.
 package origdst

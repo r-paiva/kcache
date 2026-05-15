@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+#
+# SPDX-License-Identifier: Apache-2.0
+
 # test-operator.sh — tests CachePolicy lifecycle: create, update, delete,
 # path filtering, and podSelector scoping.
 #

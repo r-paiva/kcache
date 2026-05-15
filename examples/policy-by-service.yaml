@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+#
+# SPDX-License-Identifier: Apache-2.0
+
 # Per-service policy using podSelector.
 # Only pods from the catalog-service cache requests; other pods in the namespace
 # are unaffected. Multiple rules let you set different TTLs per upstream host.

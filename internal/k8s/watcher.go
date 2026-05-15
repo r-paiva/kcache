@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+//
+// SPDX-License-Identifier: Apache-2.0
+
 // Package k8s watches CachePolicy CRDs and pod events to provide dynamic,
 // namespace- and label-scoped cache policy to the kcache proxy.
 package k8s

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package proxy_test
 
 import (
@@ -15,7 +19,7 @@ import (
 	"kache/internal/proxy"
 )
 
-// mockOrigDst always resolves to the given address, simulating BPF map lookup.
+// mockOrigDst always resolves to the given address, simulating BPF map lookup
 func mockOrigDst(addr net.Addr) proxy.OrigDstFunc {
 	tcp := addr.(*net.TCPAddr)
 	return func(_ net.Conn) (net.IP, uint16, error) {
@@ -340,7 +344,7 @@ func TestTTLExpiry(t *testing.T) {
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	doRequest(t, proxyAddr, "GET", "/ttl", "example.com") // miss — cached for 50 ms
-	time.Sleep(100 * time.Millisecond)                     // wait for TTL to lapse
+	time.Sleep(100 * time.Millisecond)                    // wait for TTL to lapse
 	doRequest(t, proxyAddr, "GET", "/ttl", "example.com") // expired → miss again
 
 	if calls != 2 {
