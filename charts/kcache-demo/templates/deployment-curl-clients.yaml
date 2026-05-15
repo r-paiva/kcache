@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kcache-demo.fullname" . }}-curl-clients
+  labels:
+    {{- include "kcache-demo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: curl-client
+spec:
+  replicas: {{ .Values.curlClients.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kcache-demo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: curl-client
+  template:
+    metadata:
+      labels:
+        {{- include "kcache-demo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: curl-client
+    spec:
+      containers:
+        - name: curl
+          image: "{{ .Values.curlClients.image.repository }}:{{ .Values.curlClients.image.tag }}"
+          imagePullPolicy: {{ .Values.curlClients.image.pullPolicy }}
+          command: ["sh", "-c", "sleep infinity"]
+          resources:
+            {{- toYaml .Values.curlClients.resources | nindent 12 }}

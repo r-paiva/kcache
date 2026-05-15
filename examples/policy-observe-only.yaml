@@ -1,0 +1,6 @@
+# Observe-only / dry-run: no CachePolicy in the namespace means all traffic
+# is forwarded transparently. Deploy kcache and watch the Grafana dashboard
+# (upstream latency, request rates by host and path)
+#
+#
+# This file is intentionally empty — it is documentation, not a manifest.

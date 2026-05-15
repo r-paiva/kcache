@@ -1,0 +1,56 @@
+# kcache transparent HTTP cache daemon.
+# Build the image into minikube's Docker daemon before deploying:
+#   eval $(minikube docker-env)
+#   docker build -t kcache:dev /path/to/kcache
+kcache:
+    enabled: true
+    image:
+        repository: kcache
+        tag: dev
+        pullPolicy: Never
+    proxyAddr: "0.0.0.0:8080"
+    logLevel: debug
+    maxCacheBytes: 268435456 # 256 MiB total cache budget
+    maxBodyBytes: 1048576 # 1 MiB per response
+    metrics:
+        port: 9090
+    resources:
+        limits:
+            cpu: 200m
+            memory: 512Mi
+        requests:
+            cpu: 100m
+            memory: 128Mi
+
+# Simple nginx backend that the curl clients will call on port 80.
+# kcache intercepts all outgoing port-80 connections, so the first
+# request will be a cache MISS and subsequent ones will be HITs.
+backend:
+    replicas: 1
+    image:
+        repository: nginx
+        tag: alpine
+        pullPolicy: IfNotPresent
+    resources:
+        limits:
+            cpu: 100m
+            memory: 64Mi
+        requests:
+            cpu: 50m
+            memory: 32Mi
+
+# Curl client pods — each runs "sleep infinity" so you can exec into
+# them and run requests, or let test-cache.sh drive them.
+curlClients:
+    replicas: 3
+    image:
+        repository: curlimages/curl
+        tag: latest
+        pullPolicy: IfNotPresent
+    resources:
+        limits:
+            cpu: 50m
+            memory: 32Mi
+        requests:
+            cpu: 10m
+            memory: 16Mi

@@ -1,0 +1,24 @@
+# Per-service policy using podSelector.
+# Only pods from the catalog-service cache requests; other pods in the namespace
+# are unaffected. Multiple rules let you set different TTLs per upstream host.
+apiVersion: kcache.io/v1alpha1
+kind: CachePolicy
+metadata:
+  name: catalog-cache
+  namespace: ecommerce
+spec:
+  podSelector:
+    matchLabels:
+      app: catalog-service
+  rules:
+    # Product and category data changes infrequently — cache for 5 minutes.
+    - host: "inventory-service"
+      port: 80
+      methods: [GET]
+      paths: ["/api/products", "/api/categories"]
+      ttl: 5m
+    # Pricing is more volatile — shorter TTL.
+    - host: "pricing-service"
+      port: 80
+      methods: [GET]
+      ttl: 30s

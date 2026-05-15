@@ -1,0 +1,65 @@
+{{- if .Values.kcache.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "kcache-demo.fullname" . }}-kcache
+  labels:
+    {{- include "kcache-demo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kcache
+spec:
+  selector:
+    matchLabels:
+      {{- include "kcache-demo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: kcache
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        {{- include "kcache-demo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: kcache
+    spec:
+      # hostNetwork so kcache listens on the node IP, reachable from pod veths.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: {{ include "kcache-demo.fullname" . }}-kcache
+      nodeSelector:
+        kubernetes.io/os: linux
+      # Tolerate all taints so kcache runs on every node including control-plane.
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: kcache
+          image: "{{ .Values.kcache.image.repository }}:{{ .Values.kcache.image.tag }}"
+          imagePullPolicy: {{ .Values.kcache.image.pullPolicy }}
+          args:
+            - -proxy-addr={{ .Values.kcache.proxyAddr }}
+            - -log-level={{ .Values.kcache.logLevel }}
+            - -max-cache-bytes={{ .Values.kcache.maxCacheBytes | int64 }}
+            - -max-body-bytes={{ .Values.kcache.maxBodyBytes | int64 }}
+          env:
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.kcache.metrics.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            privileged: true
+          resources:
+            {{- toYaml .Values.kcache.resources | nindent 12 }}
+{{- end }}

@@ -1,0 +1,92 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: cachepolicies.kcache.io
+spec:
+  group: kcache.io
+  names:
+    kind: CachePolicy
+    listKind: CachePolicyList
+    plural: cachepolicies
+    singular: cachepolicy
+    shortNames:
+      - cp
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [rules]
+              properties:
+                podSelector:
+                  type: object
+                  description: |
+                    Restricts the policy to pods with matching labels.
+                    An empty selector matches all pods in the namespace.
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    matchExpressions:
+                      type: array
+                      items:
+                        type: object
+                        required: [key, operator]
+                        properties:
+                          key:
+                            type: string
+                          operator:
+                            type: string
+                            enum: [In, NotIn, Exists, DoesNotExist]
+                          values:
+                            type: array
+                            items:
+                              type: string
+                rules:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [host, ttl]
+                    properties:
+                      host:
+                        type: string
+                        description: Hostname glob. Use "*" to match any host.
+                      port:
+                        type: integer
+                        minimum: 0
+                        maximum: 65535
+                        default: 80
+                        description: Destination port. 0 matches any port.
+                      methods:
+                        type: array
+                        items:
+                          type: string
+                          enum: [GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS]
+                        description: HTTP methods to cache. Empty matches all.
+                      paths:
+                        type: array
+                        items:
+                          type: string
+                        description: URL path prefixes to cache. Empty matches all.
+                      ttl:
+                        type: string
+                        description: How long a cached response is considered fresh (e.g. "60s", "5m", "1h").
+                      maxBodyBytes:
+                        type: integer
+                        minimum: 0
+                        description: Maximum response body size to cache. 0 inherits the daemon default.
+      additionalPrinterColumns:
+        - name: Rules
+          type: integer
+          jsonPath: .spec.rules[*]
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

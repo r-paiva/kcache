@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kcache-demo
+description: Deploys kcache as a DaemonSet plus a backend and curl client pods for manual cache testing
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

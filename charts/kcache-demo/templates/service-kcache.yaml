@@ -1,0 +1,19 @@
+{{- if .Values.kcache.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kcache-demo.fullname" . }}-kcache-metrics
+  labels:
+    {{- include "kcache-demo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kcache
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "kcache-demo.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: kcache
+  ports:
+    - name: metrics
+      port: {{ .Values.kcache.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- end }}

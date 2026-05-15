@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kcache-demo.fullname" . }}-backend-config
+  labels:
+    {{- include "kcache-demo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name _;
+
+        # Small JSON — simulates a lightweight status/health API
+        location /api/status {
+            default_type application/json;
+            return 200 '{"status":"ok","version":"1.0.0","uptime":99999}';
+        }
+
+        # Medium JSON — simulates a product catalogue endpoint
+        location /api/products {
+            default_type application/json;
+            return 200 '[{"id":1,"name":"Widget A","price":9.99,"stock":120},{"id":2,"name":"Widget B","price":14.99,"stock":80},{"id":3,"name":"Gadget X","price":49.99,"stock":35},{"id":4,"name":"Gadget Y","price":79.99,"stock":12},{"id":5,"name":"Doohickey","price":4.99,"stock":500},{"id":6,"name":"Thingamajig","price":19.99,"stock":60},{"id":7,"name":"Whatchamacallit","price":34.99,"stock":25},{"id":8,"name":"Gizmo Pro","price":99.99,"stock":8},{"id":9,"name":"Contraption","price":24.99,"stock":45},{"id":10,"name":"Apparatus","price":59.99,"stock":18}]';
+        }
+
+        # Medium JSON — simulates a user directory
+        location /api/users {
+            default_type application/json;
+            return 200 '[{"id":1,"name":"Alice Martin","role":"admin","region":"eu-west"},{"id":2,"name":"Bob Chen","role":"viewer","region":"us-east"},{"id":3,"name":"Carol Smith","role":"editor","region":"ap-south"},{"id":4,"name":"Dave Kim","role":"viewer","region":"us-west"},{"id":5,"name":"Eve Johnson","role":"editor","region":"eu-central"},{"id":6,"name":"Frank Lee","role":"viewer","region":"us-east"},{"id":7,"name":"Grace Wu","role":"admin","region":"ap-north"},{"id":8,"name":"Hank Brown","role":"viewer","region":"eu-west"}]';
+        }
+
+        # Larger JSON — simulates an order history feed
+        location /api/orders {
+            default_type application/json;
+            return 200 '[{"id":"ord-001","user_id":1,"items":[{"product_id":3,"qty":2},{"product_id":7,"qty":1}],"total":134.97,"status":"shipped","created_at":"2026-05-01T10:00:00Z"},{"id":"ord-002","user_id":2,"items":[{"product_id":1,"qty":5}],"total":49.95,"status":"delivered","created_at":"2026-05-02T11:30:00Z"},{"id":"ord-003","user_id":3,"items":[{"product_id":8,"qty":1},{"product_id":5,"qty":3}],"total":114.96,"status":"processing","created_at":"2026-05-03T09:15:00Z"},{"id":"ord-004","user_id":1,"items":[{"product_id":2,"qty":2},{"product_id":6,"qty":2}],"total":69.96,"status":"shipped","created_at":"2026-05-04T14:00:00Z"},{"id":"ord-005","user_id":5,"items":[{"product_id":9,"qty":1}],"total":24.99,"status":"delivered","created_at":"2026-05-05T08:45:00Z"}]';
+        }
+
+        # Static asset — simulates a CSS file (~400 bytes)
+        location /static/styles.css {
+            default_type text/css;
+            return 200 'body{margin:0;font-family:sans-serif;background:#f5f5f5}header{background:#1a1a2e;color:#fff;padding:1rem 2rem}nav a{color:#eee;margin-right:1rem;text-decoration:none}.card{background:#fff;border-radius:8px;padding:1.5rem;margin:1rem;box-shadow:0 2px 4px rgba(0,0,0,.1)}.btn{display:inline-block;padding:.5rem 1rem;background:#16213e;color:#fff;border-radius:4px;cursor:pointer}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.75rem;border-bottom:1px solid #ddd}';
+        }
+
+        # Static asset — simulates a small JS bundle
+        location /static/app.js {
+            default_type application/javascript;
+            return 200 '(function(){"use strict";const API="/api";async function fetchProducts(){const r=await fetch(API+"/products");return r.json()}async function fetchUsers(){const r=await fetch(API+"/users");return r.json()}async function fetchOrders(){const r=await fetch(API+"/orders");return r.json()}window.App={fetchProducts,fetchUsers,fetchOrders};})();';
+        }
+
+        # Root — simple HTML page
+        location / {
+            default_type text/html;
+            return 200 '<!doctype html><html><head><title>kcache demo backend</title><link rel="stylesheet" href="/static/styles.css"></head><body><header><h1>kcache demo backend</h1></header><main class="card"><p>Available endpoints:</p><ul><li>GET /api/status</li><li>GET /api/products</li><li>GET /api/users</li><li>GET /api/orders</li><li>GET /static/styles.css</li><li>GET /static/app.js</li></ul></main><script src="/static/app.js"></script></body></html>';
+        }
+    }

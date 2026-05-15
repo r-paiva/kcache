@@ -1,0 +1,14 @@
+# Cache all GET requests on port 80 for every pod in the namespace.
+# Good starting point for namespaces where all services have similar caching needs.
+apiVersion: kcache.io/v1alpha1
+kind: CachePolicy
+metadata:
+  name: cache-all
+  namespace: default
+spec:
+  podSelector: {}   # empty = all pods in the namespace
+  rules:
+    - host: "*"
+      port: 80
+      methods: [GET]
+      ttl: 60s

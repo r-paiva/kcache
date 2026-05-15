@@ -1,0 +1,22 @@
+# Two-tier TTL: long cache for static assets, short cache for API responses.
+# Rules are evaluated in order — first match wins.
+apiVersion: kcache.io/v1alpha1
+kind: CachePolicy
+metadata:
+  name: tiered-cache
+  namespace: frontend
+spec:
+  podSelector: {}
+  rules:
+    # Static assets rarely change — cache aggressively.
+    - host: "*"
+      port: 80
+      methods: [GET]
+      paths: ["/static/", "/assets/", "/public/"]
+      ttl: 1h
+    # API responses — cache briefly to absorb traffic bursts.
+    - host: "*"
+      port: 80
+      methods: [GET]
+      paths: ["/api/"]
+      ttl: 30s
