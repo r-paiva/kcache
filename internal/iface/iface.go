@@ -98,7 +98,7 @@ func (m *Manager) Watch(ctx context.Context) {
 			}
 			switch update.Header.Type {
 			case unix.RTM_NEWLINK:
-				if update.Link.Type() != "veth" {
+				if !isPodVeth(update.Link) {
 					continue
 				}
 				if err := m.attach(update.Link); err != nil {

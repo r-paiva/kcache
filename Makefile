@@ -19,6 +19,7 @@ MONITORING_NS := monitoring
 
 .PHONY: all build generate test test-v test-race fmt vet lint clean \
         run run-debug run-stats trace metrics metrics-watch deps tidy \
+        crd-all crd-flannel crd-cilium crd-calico \
         deploy-all deploy-flannel deploy-cilium deploy-calico \
         load-all load-flannel load-cilium load-calico \
         reload-all reload-flannel reload-cilium reload-calico \
@@ -102,12 +103,15 @@ endef
 
 define deploy
 	$(call push-image,$(1))
+	kubectl --context=$(1) apply -f $(CHART)/crds/
 	helm upgrade --install $(RELEASE) $(CHART) \
 	  --kube-context=$(1) \
 	  --namespace=$(NAMESPACE) \
 	  --create-namespace \
 	  --set kcache.image.tag=$(IMAGE_TAG) \
 	  --wait
+	kubectl --context=$(1) rollout restart daemonset \
+	  -n $(NAMESPACE) -l app.kubernetes.io/component=kcache 2>/dev/null || true
 endef
 
 define load
@@ -138,6 +142,23 @@ define monitoring
 	  -f monitoring/grafana-values.yaml \
 	  --namespace=$(MONITORING_NS) --create-namespace --wait
 endef
+
+# ── CRD ──────────────────────────────────────────────────────────────────────
+# Helm only installs CRDs on first install, not on upgrade. Use these targets
+# to apply the latest CRD schema to an existing cluster.
+
+.PHONY: crd-all crd-flannel crd-cilium crd-calico
+
+crd-all: $(addprefix crd-,$(CLUSTERS))
+
+crd-flannel:
+	kubectl --context=flannel apply -f $(CHART)/crds/
+
+crd-cilium:
+	kubectl --context=cilium apply -f $(CHART)/crds/
+
+crd-calico:
+	kubectl --context=calico apply -f $(CHART)/crds/
 
 # ── Deploy ────────────────────────────────────────────────────────────────────
 
@@ -248,7 +269,8 @@ help:
 	@echo "  make run / run-debug    run locally (requires root)"
 	@echo ""
 	@echo "Deploy (IMAGE_NAME=$(IMAGE_NAME) IMAGE_TAG=$(IMAGE_TAG)):"
-	@echo "  deploy-{flannel,cilium,calico,all}     helm install/upgrade"
+	@echo "  crd-{flannel,cilium,calico,all}        apply CRD (helm upgrade won't update it)"
+	@echo "  deploy-{flannel,cilium,calico,all}     helm install/upgrade (applies CRD + restarts DS)"
 	@echo "  load-{flannel,cilium,calico,all}       push image + restart DaemonSet"
 	@echo "  reload-{flannel,cilium,calico,all}     load + wait for rollout"
 	@echo "  monitoring-{flannel,cilium,calico,all} install Prometheus + Grafana"

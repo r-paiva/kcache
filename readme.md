@@ -32,25 +32,25 @@ Cache behaviour is controlled by `CachePolicy` CRDs — scoped by namespace and 
 # Start minikube with your preferred CNI (Cilium shown)
 minikube start --cni=cilium --memory=4096
 
-# Build and load the image
+# Build image and deploy (applies CRD, helm install, restarts DaemonSet)
 make image
-make load-cilium
-
-# Deploy the demo chart (includes a backend + curl clients)
-helm upgrade --install demo charts/kcache-demo \
-  --kube-context=cilium --set kcache.image.tag=dev --wait
+make deploy-cilium
 
 # Run the cache test
 bash tests/test-cache.sh default cilium
 ```
 
-Or use the Makefile shortcuts:
+Or for subsequent iterations:
 
 ```sh
-make deploy-cilium      # build image, load, helm install/upgrade
-make test-cilium        # run integration tests
-make monitoring-cilium  # install Prometheus + Grafana
+make image deploy-cilium   # rebuild and redeploy
+make test-cilium           # run integration tests
+make monitoring-cilium     # install Prometheus + Grafana
 ```
+
+> **Note on the CRD:** `helm upgrade` does not update CRDs. If you delete and
+> re-apply the chart, or modify `CachePolicyRule`, run `make crd-cilium` to
+> apply the latest schema manually. `make deploy-*` does this automatically.
 
 ## CachePolicy example
 

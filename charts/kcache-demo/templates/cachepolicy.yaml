@@ -2,15 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# Cache all GET requests on port 80 for every pod in the namespace.
-# Good starting point for namespaces where all services have similar caching needs.
 apiVersion: kcache.io/v1alpha1
 kind: CachePolicy
 metadata:
-  name: cache-all
-  namespace: default
+  name: {{ include "kcache-demo.name" . }}-default
+  namespace: {{ .Release.Namespace }}
 spec:
-  podSelector: {}   # empty = all pods in the namespace
+  podSelector: {}
   rules:
     - host: "*"
       port: 80

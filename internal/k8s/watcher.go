@@ -159,17 +159,27 @@ func (w *Watcher) onPodDelete(obj any) {
 // ── CachePolicy watch ─────────────────────────────────────────────────────────
 
 func (w *Watcher) watchCachePolicies(ctx context.Context) {
+	const maxBackoff = 60 * time.Second
+	backoff := time.Second
 	for {
 		if err := w.runCachePolicyWatch(ctx); err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			slog.Warn("CachePolicy watch error, retrying", "err", err)
+			slog.Warn("CachePolicy watch error, retrying", "err", err, "backoff", backoff)
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(5 * time.Second):
+			case <-time.After(backoff):
 			}
+			if backoff < maxBackoff {
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
+		} else {
+			backoff = time.Second
 		}
 	}
 }
