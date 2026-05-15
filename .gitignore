@@ -1,0 +1,6 @@
+/kcache
+kcache_bpfel.go
+kcache_bpfeb.go
+*.o
+docs/
+NEXT_PHASE.md

@@ -1,0 +1,6 @@
+# local build artifacts — regenerated inside the builder stage
+kcache
+kcache_bpfel.go
+kcache_bpfeb.go
+kcache_bpfel.o
+kcache_bpfeb.o
