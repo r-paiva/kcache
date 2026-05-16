@@ -64,29 +64,13 @@ spec:
     matchLabels:
       app: catalog-service
   rules:
-    - host: "inventory-service"
+    - host: "*"
       port: 80
       methods: [GET]
-      paths: ["/api/products", "/api/categories"]
-      ttl: 5m
-    - host: "pricing-service"
-      port: 80
-      methods: [GET]
-      ttl: 30s
+      ttl: 60s
 ```
 
 A pod with no matching policy is unaffected — traffic passes through transparently.
-
-## Configuration flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-proxy-addr` | `0.0.0.0:8080` | Cache proxy listener address |
-| `-metrics-addr` | `0.0.0.0:9090` | Prometheus metrics endpoint |
-| `-max-cache-bytes` | `268435456` (256 MiB) | Total in-memory cache budget |
-| `-max-body-bytes` | `1048576` (1 MiB) | Max response body size to cache |
-| `-stats` | `0` (off) | Print a metrics summary on this interval (e.g. `10s`) |
-| `-log-level` | `info` | Log level: `debug`, `info`, `warn`, `error` |
 
 ## Metrics
 
@@ -98,7 +82,7 @@ curl -s http://localhost:9090/metrics | grep '^kcache_'
 
 ## Current limitations
 
-- **HTTP only** — HTTPS traffic is not intercepted. TLS MITM is on the roadmap.
+- **HTTP only** — HTTPS traffic is not intercepted. to be implemented.
 - **In-memory cache** — cache is per-node and not persisted across restarts.
 - **No upstream `Vary` header support** — cache key does not automatically adapt to `Vary` response headers; use `varyHeaders` in the policy as a workaround.
 
