@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # k-cache
 
-> **Early alpha.** HTTP only. Expect breaking changes.
+> **Early alpha.** HTTP only. Expect breaking changes. Rules are fragile and untested.
 
 A transparent, node-level HTTP cache for Kubernetes. Traffic is intercepted at the TC BPF layer on each node — pods make normal HTTP requests and responses are served from cache without any sidecar or code change.
 
@@ -57,12 +57,12 @@ make monitoring-cilium     # install Prometheus + Grafana
 apiVersion: kcache.io/v1alpha1
 kind: CachePolicy
 metadata:
-  name: catalog-cache
-  namespace: ecommerce
+  name: the-app
+  namespace: theappnamespace
 spec:
   podSelector:
     matchLabels:
-      app: catalog-service
+      app: a-backend-service
   rules:
     - host: "*"
       port: 80

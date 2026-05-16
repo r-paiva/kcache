@@ -19,6 +19,9 @@ MONITORING_NS := monitoring
 
 .PHONY: all build generate test test-v test-race fmt vet lint clean \
         run run-debug run-stats trace metrics metrics-watch deps tidy \
+        cluster-create-all cluster-create-flannel cluster-create-cilium cluster-create-calico \
+        cluster-delete-all cluster-delete-flannel cluster-delete-cilium cluster-delete-calico \
+        cluster-reset-all cluster-reset-flannel cluster-reset-cilium cluster-reset-calico \
         crd-all crd-flannel crd-cilium crd-calico \
         deploy-all deploy-flannel deploy-cilium deploy-calico \
         load-all load-flannel load-cilium load-calico \
@@ -142,6 +145,42 @@ define monitoring
 	  -f monitoring/grafana-values.yaml \
 	  --namespace=$(MONITORING_NS) --create-namespace --wait
 endef
+
+# ── Cluster lifecycle ─────────────────────────────────────────────────────────
+
+MINIKUBE_MEMORY ?= 4096
+MINIKUBE_CPUS   ?= 2
+
+cluster-create-flannel:
+	minikube start --profile flannel --cni=flannel \
+	  --memory=$(MINIKUBE_MEMORY) --cpus=$(MINIKUBE_CPUS)
+
+cluster-create-cilium:
+	minikube start --profile cilium --cni=cilium \
+	  --memory=$(MINIKUBE_MEMORY) --cpus=$(MINIKUBE_CPUS)
+
+cluster-create-calico:
+	minikube start --profile calico --cni=calico \
+	  --memory=$(MINIKUBE_MEMORY) --cpus=$(MINIKUBE_CPUS)
+
+cluster-create-all: cluster-create-flannel cluster-create-cilium cluster-create-calico
+
+cluster-delete-flannel:
+	minikube delete --profile flannel
+
+cluster-delete-cilium:
+	minikube delete --profile cilium
+
+cluster-delete-calico:
+	minikube delete --profile calico
+
+cluster-delete-all: cluster-delete-flannel cluster-delete-cilium cluster-delete-calico
+
+# Delete and recreate a cluster, then deploy.
+cluster-reset-flannel: cluster-delete-flannel cluster-create-flannel deploy-flannel
+cluster-reset-cilium:  cluster-delete-cilium  cluster-create-cilium  deploy-cilium
+cluster-reset-calico:  cluster-delete-calico  cluster-create-calico  deploy-calico
+cluster-reset-all: cluster-delete-all cluster-create-all deploy-all
 
 # ── CRD ──────────────────────────────────────────────────────────────────────
 # Helm only installs CRDs on first install, not on upgrade. Use these targets
@@ -267,6 +306,11 @@ help:
 	@echo "  make                    generate + build"
 	@echo "  make image              docker build"
 	@echo "  make run / run-debug    run locally (requires root)"
+	@echo ""
+	@echo "Cluster (MINIKUBE_MEMORY=$(MINIKUBE_MEMORY) MINIKUBE_CPUS=$(MINIKUBE_CPUS)):"
+	@echo "  cluster-create-{flannel,cilium,calico,all}  minikube start"
+	@echo "  cluster-delete-{flannel,cilium,calico,all}  minikube delete"
+	@echo "  cluster-reset-{flannel,cilium,calico,all}   delete + create + deploy"
 	@echo ""
 	@echo "Deploy (IMAGE_NAME=$(IMAGE_NAME) IMAGE_TAG=$(IMAGE_TAG)):"
 	@echo "  crd-{flannel,cilium,calico,all}        apply CRD (helm upgrade won't update it)"
