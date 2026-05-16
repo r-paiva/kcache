@@ -1,10 +1,10 @@
 <!--
-SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+SPDX-FileCopyrightText: Copyright (c) 2026, the k-cache developers
 
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# kcache
+# k-cache
 
 > **Early alpha.** HTTP only. Expect breaking changes.
 
@@ -23,8 +23,7 @@ Cache behaviour is controlled by `CachePolicy` CRDs — scoped by namespace and 
 ## Requirements
 
 - Linux kernel 6.6+
-- Kubernetes 1.24+
-- Supported CNIs: Cilium, Flannel, Calico
+- Tested with CNIs: Cilium, Flannel, Calico
 
 ## Quick start (minikube)
 

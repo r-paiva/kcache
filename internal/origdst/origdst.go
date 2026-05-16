@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+// SPDX-FileCopyrightText: Copyright (c) 2026, the k-cache developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -17,8 +17,6 @@ import (
 // Lookup returns the original destination {ip, port} for a connection whose
 // source is the given peer address. It reads from the orig_dst BPF map that
 // the TC ingress program populates on each new intercepted connection.
-//
-// The entry is NOT deleted here — the TC egress program removes it on FIN/RST.
 func Lookup(origDstMap *ebpf.Map, peer *net.TCPAddr) (net.IP, uint16, error) {
 	srcIP := peer.IP.To4()
 	if srcIP == nil {

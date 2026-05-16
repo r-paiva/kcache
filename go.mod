@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+// SPDX-FileCopyrightText: Copyright (c) 2026, the k-cache developers
 //
 // SPDX-License-Identifier: Apache-2.0
 

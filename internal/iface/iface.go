@@ -1,12 +1,10 @@
-// SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
+// SPDX-FileCopyrightText: Copyright (c) 2026, the k-cache developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
 // Package iface manages TC BPF attachment to pod veth interfaces.
 // It attaches tc_ingress and tc_egress programs to every veth it discovers,
 // and watches for new veths as pods start.
-//
-// Attachment uses TCX (bpf_link-based TC) when the kernel supports it
 // (≥6.6), which places kcache in the same program chain as Cilium rather
 // than in the legacy cls_bpf chain. On older kernels it falls back to the
 // legacy cls_bpf filter mechanism.
@@ -37,8 +35,6 @@ type linkCloser interface {
 //   - Flannel / standard containerd: veth + 8 hex chars  (e.g. veth1a2b3c4d)
 //   - Cilium veth mode:              lxc  + 12 hex chars (e.g. lxcaf76531335cb)
 //   - Calico:                        cali + 10 hex chars (e.g. cali1a2b3c4d5e)
-//
-// Cilium's own internal interfaces (cilium_host, cilium_net, lxc_health, lxc_netdev)
 // are deliberately excluded because attaching TC programs to them breaks Cilium's
 // internal packet forwarding.
 var podVethRe = regexp.MustCompile(`^(veth[0-9a-f]{7,}|lxc[0-9a-f]{8,}|cali[0-9a-f]{7,})$`)
