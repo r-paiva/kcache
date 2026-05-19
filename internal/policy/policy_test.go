@@ -11,8 +11,6 @@ import (
 	"kache/internal/policy"
 )
 
-// match is a helper that calls Match with no namespace/pod-label scoping,
-// matching how tests exercise host/port/method rules in isolation.
 func match(p *policy.Policy, host string, port uint16, method string) *policy.Rule {
 	return p.Match("", nil, host, port, method, "/")
 }

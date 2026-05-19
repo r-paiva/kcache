@@ -14,23 +14,19 @@ import (
 	"kache/internal/cachekey"
 )
 
-// Rule defines caching behaviour for requests originating from a matched pod.
 type Rule struct {
-	// Namespace and PodSelector scope this rule to specific pods.
-	// An empty/nil PodSelector matches all pods in the namespace.
-	// An empty Namespace matches any namespace (used for the fallback default).
 	Namespace   string
 	PodSelector labels.Selector
 
-	Host    string        // exact hostname or "*" for any
-	Port    uint16        // destination port; 0 means any
-	Methods []string      // HTTP methods to cache; empty means all
-	Paths   []string      // URL path prefixes to cache; empty means all
+	Host    string
+	Port    uint16
+	Methods []string
+	Paths   []string
 	TTL     time.Duration
 
-	CacheBody    bool     // include request body in cache key
-	VaryHeaders  []string // header names that partition the cache
-	MaxBodyBytes int64    // per-rule body size limit; 0 inherits daemon default
+	CacheBody    bool
+	VaryHeaders  []string
+	MaxBodyBytes int64
 }
 
 func (r *Rule) KeyConfig() cachekey.Config {
@@ -40,7 +36,6 @@ func (r *Rule) KeyConfig() cachekey.Config {
 	}
 }
 
-// Policy holds an ordered list of caching rules.
 type Policy struct {
 	rules []Rule
 }
@@ -49,9 +44,6 @@ func New(rules []Rule) *Policy {
 	return &Policy{rules: rules}
 }
 
-// Match returns the first rule that matches the request context, or nil.
-// namespace and podLabels identify the source pod; host, port, method, path
-// describe the outbound request.
 func (p *Policy) Match(namespace string, podLabels map[string]string, host string, port uint16, method, path string) *Rule {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h

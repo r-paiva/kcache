@@ -20,19 +20,15 @@ import (
 	intpolicy "kache/internal/policy"
 )
 
-// ── fakes ─────────────────────────────────────────────────────────────────────
-
-// fakeUnstructured implements runtime.Unstructured using a raw map.
-// Only UnstructuredContent is called by handlePolicyEvent; the rest are no-ops.
 type fakeUnstructured struct{ content map[string]any }
 
-func (f *fakeUnstructured) UnstructuredContent() map[string]any      { return f.content }
-func (f *fakeUnstructured) SetUnstructuredContent(c map[string]any)  { f.content = c }
-func (f *fakeUnstructured) IsList() bool                             { return false }
-func (f *fakeUnstructured) EachListItem(func(runtime.Object) error) error { return nil }
+func (f *fakeUnstructured) UnstructuredContent() map[string]any                    { return f.content }
+func (f *fakeUnstructured) SetUnstructuredContent(c map[string]any)                { f.content = c }
+func (f *fakeUnstructured) IsList() bool                                           { return false }
+func (f *fakeUnstructured) EachListItem(func(runtime.Object) error) error          { return nil }
 func (f *fakeUnstructured) EachListItemWithAlloc(func(runtime.Object) error) error { return nil }
-func (f *fakeUnstructured) NewEmptyInstance() runtime.Unstructured   { return &fakeUnstructured{} }
-func (f *fakeUnstructured) GetObjectKind() schema.ObjectKind         { return schema.EmptyObjectKind }
+func (f *fakeUnstructured) NewEmptyInstance() runtime.Unstructured                 { return &fakeUnstructured{} }
+func (f *fakeUnstructured) GetObjectKind() schema.ObjectKind                       { return schema.EmptyObjectKind }
 func (f *fakeUnstructured) DeepCopyObject() runtime.Object {
 	c := make(map[string]any, len(f.content))
 	for k, v := range f.content {
@@ -41,7 +37,6 @@ func (f *fakeUnstructured) DeepCopyObject() runtime.Object {
 	return &fakeUnstructured{content: c}
 }
 
-// makeWatcher builds a zero-dependency Watcher suitable for unit tests.
 func makeWatcher(onChange func(*intpolicy.Policy)) *Watcher {
 	if onChange == nil {
 		onChange = func(*intpolicy.Policy) {}
@@ -53,7 +48,6 @@ func makeWatcher(onChange func(*intpolicy.Policy)) *Watcher {
 	}
 }
 
-// makePod creates a minimal pod with the given IP, namespace, and labels.
 func makePod(ip, ns string, lbls map[string]string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -65,7 +59,6 @@ func makePod(ip, ns string, lbls map[string]string) *corev1.Pod {
 	}
 }
 
-// makePolicy builds a CachePolicy with a single rule and an optional label selector.
 func makePolicy(name, ns string, sel *metav1.LabelSelector, ttl time.Duration) v1alpha1.CachePolicy {
 	cp := v1alpha1.CachePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
@@ -81,16 +74,12 @@ func makePolicy(name, ns string, sel *metav1.LabelSelector, ttl time.Duration) v
 	return cp
 }
 
-// policyToUnstructured serialises a CachePolicy into the map form the dynamic
-// client returns, so handlePolicyEvent can consume it via fakeUnstructured.
 func policyToUnstructured(cp v1alpha1.CachePolicy) map[string]any {
 	b, _ := json.Marshal(cp)
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	return m
 }
-
-// ── onPodAdd / onPodDelete ────────────────────────────────────────────────────
 
 func TestOnPodAdd_StoresMeta(t *testing.T) {
 	w := makeWatcher(nil)
@@ -151,8 +140,6 @@ func TestOnPodDelete_UnknownIPIsNoop(t *testing.T) {
 	// Should not panic.
 }
 
-// ── NamespaceLookup ───────────────────────────────────────────────────────────
-
 func TestNamespaceLookup_Found(t *testing.T) {
 	w := makeWatcher(nil)
 	w.onPodAdd(makePod("192.168.1.5", "staging", map[string]string{"tier": "frontend"}))
@@ -170,8 +157,6 @@ func TestNamespaceLookup_NotFound(t *testing.T) {
 		t.Errorf("expected empty result for unknown IP, got ns=%q", ns)
 	}
 }
-
-// ── handlePolicyEvent ─────────────────────────────────────────────────────────
 
 func TestHandlePolicyEvent_Added(t *testing.T) {
 	w := makeWatcher(nil)
@@ -260,7 +245,6 @@ func TestHandlePolicyEvent_MultipleNamespaces(t *testing.T) {
 
 func TestHandlePolicyEvent_InvalidObject(t *testing.T) {
 	w := makeWatcher(nil)
-	// Object does not implement runtime.Unstructured — should be silently ignored.
 	w.handlePolicyEvent(watch.Event{
 		Type:   watch.Added,
 		Object: nil,
@@ -269,8 +253,6 @@ func TestHandlePolicyEvent_InvalidObject(t *testing.T) {
 		t.Error("expected no change when event object is nil/invalid")
 	}
 }
-
-// ── rebuild ───────────────────────────────────────────────────────────────────
 
 func TestRebuild_EmptyMap(t *testing.T) {
 	var got *intpolicy.Policy
@@ -324,9 +306,7 @@ func TestRebuild_MoreSpecificSelectorTakesPriority(t *testing.T) {
 	var got *intpolicy.Policy
 	w := makeWatcher(func(p *intpolicy.Policy) { got = p })
 
-	// Broad policy: empty selector (matches all pods), TTL=1m.
 	broad := makePolicy("broad", "default", nil, time.Minute)
-	// Narrow policy: label selector, TTL=5m.
 	narrow := makePolicy("narrow", "default", &metav1.LabelSelector{
 		MatchLabels: map[string]string{"app": "api"},
 	}, 5*time.Minute)
@@ -348,7 +328,6 @@ func TestRebuild_InvalidSelectorSkipped(t *testing.T) {
 	var got *intpolicy.Policy
 	w := makeWatcher(func(p *intpolicy.Policy) { got = p })
 
-	// LabelSelectorRequirement with an invalid operator makes AsSelector fail.
 	bad := makePolicy("bad", "default", &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{Key: "app", Operator: "InvalidOp", Values: []string{"x"}},
@@ -357,13 +336,10 @@ func TestRebuild_InvalidSelectorSkipped(t *testing.T) {
 	w.polMap["default"] = []v1alpha1.CachePolicy{bad}
 	w.rebuild()
 
-	// The bad policy should be skipped — no rules produced.
 	if r := got.Match("default", nil, "*", 80, "GET", "/"); r != nil {
 		t.Error("policy with invalid selector should be skipped")
 	}
 }
-
-// ── PolicyForPod ──────────────────────────────────────────────────────────────
 
 func TestPolicyForPod_NoMatchingNamespace(t *testing.T) {
 	w := makeWatcher(nil)
@@ -416,7 +392,6 @@ func TestPolicyForPod_MostSpecificWins(t *testing.T) {
 	narrow := makePolicy("narrow", "default", &metav1.LabelSelector{
 		MatchLabels: map[string]string{"app": "api"},
 	}, 5*time.Minute)
-	// narrow has more requirements → wins.
 	w.polMap["default"] = []v1alpha1.CachePolicy{broad, narrow}
 
 	rules := w.PolicyForPod("default", map[string]string{"app": "api"})
@@ -430,7 +405,6 @@ func TestPolicyForPod_MostSpecificWins(t *testing.T) {
 
 func TestPolicyForPod_TieBreakByName(t *testing.T) {
 	w := makeWatcher(nil)
-	// Two policies with same empty selector — alphabetically first name wins.
 	w.polMap["default"] = []v1alpha1.CachePolicy{
 		makePolicy("zzz", "default", nil, time.Hour),
 		makePolicy("aaa", "default", nil, 30*time.Second),
@@ -444,8 +418,6 @@ func TestPolicyForPod_TieBreakByName(t *testing.T) {
 		t.Errorf("alphabetically first name (aaa, TTL=30s) should win; got %v", rules[0].TTL)
 	}
 }
-
-// ── unstructuredToPolicy ──────────────────────────────────────────────────────
 
 func TestUnstructuredToPolicy_RoundTrip(t *testing.T) {
 	cp := v1alpha1.CachePolicy{
@@ -480,7 +452,7 @@ func TestUnstructuredToPolicy_RoundTrip(t *testing.T) {
 }
 
 func TestUnstructuredToPolicy_InvalidJSON(t *testing.T) {
-	// nil map produces an empty CachePolicy, not an error.
+	// nil map produces an empty CachePolicy, not an error
 	cp, err := unstructuredToPolicy(nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -489,8 +461,6 @@ func TestUnstructuredToPolicy_InvalidJSON(t *testing.T) {
 		t.Errorf("expected empty CachePolicy from nil map")
 	}
 }
-
-// ── selectorLen ───────────────────────────────────────────────────────────────
 
 func TestSelectorLen_Nil(t *testing.T) {
 	if n := selectorLen(nil); n != 0 {

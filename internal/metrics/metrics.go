@@ -10,8 +10,6 @@ import (
 )
 
 var (
-	// cache label values: "hit", "miss", "bypass", "error"
-	// path is the URL path with query stripped (e.g. "/api/products").
 	Requests = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "kcache_requests_total",
 		Help: "Total HTTP requests handled by the cache proxy.",
@@ -60,10 +58,4 @@ var (
 		Name: "kcache_cache_skip_request_body_too_large_total",
 		Help: "Requests forwarded but not cached because the request body exceeded the buffering limit.",
 	}, []string{"host"})
-
-	// Placeholder for Phase 3
-	TLSHandshakes = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "kcache_tls_handshakes_total",
-		Help: "Total TLS handshakes performed by the MITM layer.",
-	}, []string{"host", "result"})
 )

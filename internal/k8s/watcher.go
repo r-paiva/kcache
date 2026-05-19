@@ -38,27 +38,22 @@ var cachePolicyGVR = schema.GroupVersionResource{
 	Resource: "cachepolicies",
 }
 
-// PodMeta holds the namespace and labels for a pod, keyed by pod IP.
 type PodMeta struct {
 	Namespace string
 	Labels    map[string]string
 }
 
-// Watcher maintains a live view of CachePolicies and pod IPs.
-// Call Run() to start the informers; it blocks until ctx is cancelled.
 type Watcher struct {
 	client    kubernetes.Interface
 	dynClient dynamic.Interface
 
 	mu      sync.RWMutex
-	podMeta map[string]PodMeta  // podIP → PodMeta
-	polMap  map[string][]v1alpha1.CachePolicy // namespace → policies
+	podMeta map[string]PodMeta
+	polMap  map[string][]v1alpha1.CachePolicy
 
 	onChange func(*intpolicy.Policy)
 }
 
-// New creates a Watcher. onChange is called whenever the effective policy
-// changes; the caller should replace the proxy's active policy.
 func New(onChange func(*intpolicy.Policy)) (*Watcher, error) {
 	cfg, err := loadConfig()
 	if err != nil {
@@ -81,7 +76,6 @@ func New(onChange func(*intpolicy.Policy)) (*Watcher, error) {
 	}, nil
 }
 
-// loadConfig tries in-cluster config first, falls back to kubeconfig.
 func loadConfig() (*rest.Config, error) {
 	if cfg, err := rest.InClusterConfig(); err == nil {
 		return cfg, nil
@@ -90,7 +84,6 @@ func loadConfig() (*rest.Config, error) {
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, nil).ClientConfig()
 }
 
-// Run starts the pod and CachePolicy informers and blocks until ctx is done.
 func (w *Watcher) Run(ctx context.Context) {
 	factory := informers.NewSharedInformerFactory(w.client, 5*time.Minute)
 
@@ -105,14 +98,11 @@ func (w *Watcher) Run(ctx context.Context) {
 	factory.WaitForCacheSync(ctx.Done())
 	slog.Info("k8s pod informer synced")
 
-	// CachePolicy is a CRD so we use the dynamic client with a manual watch loop.
 	go w.watchCachePolicies(ctx)
 
 	<-ctx.Done()
 }
 
-// NamespaceLookup returns the namespace and labels for the given pod IP.
-// Returns empty strings/nil if the pod is not known.
 func (w *Watcher) NamespaceLookup(podIP string) (namespace string, podLabels map[string]string) {
 	w.mu.RLock()
 	m, ok := w.podMeta[podIP]
@@ -122,8 +112,6 @@ func (w *Watcher) NamespaceLookup(podIP string) (namespace string, podLabels map
 	}
 	return m.Namespace, m.Labels
 }
-
-// ── pod handlers ─────────────────────────────────────────────────────────────
 
 func (w *Watcher) onPodAdd(obj any) {
 	pod, ok := obj.(*corev1.Pod)
@@ -156,8 +144,6 @@ func (w *Watcher) onPodDelete(obj any) {
 	w.mu.Unlock()
 }
 
-// ── CachePolicy watch ─────────────────────────────────────────────────────────
-
 func (w *Watcher) watchCachePolicies(ctx context.Context) {
 	const maxBackoff = 60 * time.Second
 	backoff := time.Second
@@ -185,7 +171,6 @@ func (w *Watcher) watchCachePolicies(ctx context.Context) {
 }
 
 func (w *Watcher) runCachePolicyWatch(ctx context.Context) error {
-	// Do an initial list to populate the map before watching.
 	list, err := w.dynClient.Resource(cachePolicyGVR).Namespace("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("list CachePolicies: %w", err)
@@ -270,10 +255,6 @@ func (w *Watcher) handlePolicyEvent(ev watch.Event) {
 	w.rebuild()
 }
 
-// ── policy rebuild ────────────────────────────────────────────────────────────
-
-// rebuild converts the current CachePolicy map into a policy.Policy and
-// calls onChange. Called whenever the map changes.
 func (w *Watcher) rebuild() {
 	w.mu.RLock()
 	snapshot := make(map[string][]v1alpha1.CachePolicy, len(w.polMap))
@@ -307,7 +288,6 @@ func (w *Watcher) rebuild() {
 		}
 	}
 
-	// More specific selectors (more requirements) take priority.
 	sort.Slice(rules, func(i, j int) bool {
 		ri := selectorLen(rules[i].PodSelector)
 		rj := selectorLen(rules[j].PodSelector)
@@ -316,8 +296,6 @@ func (w *Watcher) rebuild() {
 
 	w.onChange(intpolicy.New(rules))
 }
-
-// ── helpers ───────────────────────────────────────────────────────────────────
 
 func selectorLen(sel labels.Selector) int {
 	if sel == nil {
@@ -339,8 +317,6 @@ func unstructuredToPolicy(obj map[string]any) (v1alpha1.CachePolicy, error) {
 	return cp, nil
 }
 
-// PolicyForPod returns the best-matching policy rules for a pod with the
-// given namespace and labels. Returns nil if no policy applies.
 func (w *Watcher) PolicyForPod(namespace string, podLabels map[string]string) []intpolicy.Rule {
 	w.mu.RLock()
 	cps := append([]v1alpha1.CachePolicy{}, w.polMap[namespace]...)
@@ -361,7 +337,6 @@ func (w *Watcher) PolicyForPod(namespace string, podLabels map[string]string) []
 		return nil
 	}
 
-	// Pick the most specific match; break ties by name.
 	sort.Slice(matched, func(i, j int) bool {
 		si, _ := metav1.LabelSelectorAsSelector(&matched[i].Spec.PodSelector)
 		sj, _ := metav1.LabelSelectorAsSelector(&matched[j].Spec.PodSelector)

@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// Package origdst resolves the original destination of a BPF-intercepted
-// TCP connection by looking up the orig_dst BPF map keyed by {src_ip, src_port}.
 package origdst
 
 import (
@@ -14,9 +12,6 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-// Lookup returns the original destination {ip, port} for a connection whose
-// source is the given peer address. It reads from the orig_dst BPF map that
-// the TC ingress program populates on each new intercepted connection.
 func Lookup(origDstMap *ebpf.Map, peer *net.TCPAddr) (net.IP, uint16, error) {
 	srcIP := peer.IP.To4()
 	if srcIP == nil {

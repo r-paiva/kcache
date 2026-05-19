@@ -23,13 +23,8 @@ import (
 	"kache/internal/policy"
 )
 
-// OrigDstFunc resolves the original destination for a BPF-redirected connection.
-// In production this reads from the BPF port_orig_dst map.
-// In tests a simple mock is injected instead.
 type OrigDstFunc func(conn net.Conn) (ip net.IP, port uint16, err error)
 
-// NamespaceFunc resolves the Kubernetes namespace and pod labels for a source IP.
-// Returns empty strings/nil when running outside Kubernetes or pod is unknown.
 type NamespaceFunc func(podIP string) (namespace string, podLabels map[string]string)
 
 type Proxy struct {
@@ -42,7 +37,6 @@ type Proxy struct {
 	maxBodyBytes int64 // 0 means unlimited
 }
 
-// New creates a Proxy. maxBodyBytes is the largest response body that will be cached; 0 disables the limit.
 func New(c cache.Cache, p *policy.Policy, origDst OrigDstFunc, namespaceFn NamespaceFunc, maxBodyBytes int64) *Proxy {
 	return &Proxy{
 		cache:        c,
@@ -54,7 +48,6 @@ func New(c cache.Cache, p *policy.Policy, origDst OrigDstFunc, namespaceFn Names
 	}
 }
 
-// SetPolicy replaces the active policy atomically. Safe to call concurrently.
 func (p *Proxy) SetPolicy(pol *policy.Policy) {
 	p.mu.Lock()
 	p.policy = pol
@@ -90,7 +83,6 @@ func (p *Proxy) handleConn(conn net.Conn) {
 		return
 	}
 
-	// Resolve namespace and pod labels from the source IP once per connection.
 	var namespace string
 	var podLabels map[string]string
 	if p.namespaceFn != nil {
@@ -126,16 +118,11 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 		host = origAddr
 	}
 
-	// Normalise path for metric labels: use the URL path only, no query string.
-	// Falls back to "/" so the label is never empty.
 	path := req.URL.Path
 	if path == "" {
 		path = "/"
 	}
 
-	// Read the request body so we can hash it for the cache key and replay it upstream.
-	// If maxBodyBytes is set, cap the read: on overflow, stitch the partial read back
-	// with the remaining stream so the upstream still receives the full body.
 	var body []byte
 	var reqBodyTooLarge bool
 	if req.Body != nil {
@@ -210,8 +197,8 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 			slog.Debug("upstream non-2xx, not cached",
 				"host", host, "method", req.Method, "status", resp.StatusCode)
 		}
-		resp.Write(w)         //nolint:errcheck
-		resp.Body.Close()     //nolint:errcheck
+		resp.Write(w)     //nolint:errcheck
+		resp.Body.Close() //nolint:errcheck
 		return
 	}
 
@@ -225,14 +212,10 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 		return
 	}
 	metrics.Requests.WithLabelValues(host, req.Method, "bypass", path).Inc()
-	resp.Write(w)         //nolint:errcheck
-	resp.Body.Close()     //nolint:errcheck
+	resp.Write(w)     //nolint:errcheck
+	resp.Body.Close() //nolint:errcheck
 }
 
-// fetchUpstream dials the upstream, sends the request, reads the full response.
-// Returns (entry, resp): entry is non-nil only for 2xx responses worth caching.
-// When the response body exceeds maxBodyBytes the body is streamed; the caller
-// must call resp.Body.Close() after consuming the response.
 func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string) (*cache.Entry, *http.Response) {
 	host := req.Host
 	start := time.Now()
@@ -244,15 +227,12 @@ func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string) (*cac
 		return nil, nil
 	}
 
-	// body non-nil: already buffered (small body or GET).
-	// body nil + req.Body non-nil: streaming (request body exceeded buffer limit).
-	// body nil + req.Body nil: no body (e.g. GET).
 	if body != nil {
 		req.Body = io.NopCloser(bytes.NewReader(body))
 	} else if req.Body == nil {
 		req.Body = http.NoBody
 	}
-	// Prevent upstream from keeping the connection open indefinitely.
+
 	req.Header.Set("Connection", "close")
 	if err := req.Write(upstream); err != nil {
 		upstream.Close()
@@ -273,8 +253,6 @@ func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string) (*cac
 	}
 	metrics.UpstreamLatency.WithLabelValues(host, urlPath).Observe(time.Since(start).Seconds())
 
-	// Read the response body. When maxBodyBytes is set, stop at the limit so we
-	// never allocate an unbounded buffer for a single response.
 	if p.maxBodyBytes > 0 {
 		lr := &io.LimitedReader{R: resp.Body, N: p.maxBodyBytes + 1}
 		partial, readErr := io.ReadAll(lr)
@@ -285,8 +263,6 @@ func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string) (*cac
 			return nil, nil
 		}
 		if lr.N == 0 {
-			// Body exceeded the limit. Stream the remainder from the live upstream
-			// connection; ownership of upstream transfers to the caller via resp.Body.
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				metrics.CacheSkipsBodyTooLarge.WithLabelValues(host).Inc()
 				slog.Debug("response too large to cache",
@@ -298,7 +274,7 @@ func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string) (*cac
 			}
 			return nil, resp
 		}
-		// Body fits within the limit; upstream is no longer needed.
+
 		resp.Body.Close()
 		upstream.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(partial))
@@ -333,8 +309,6 @@ func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string) (*cac
 	return nil, resp
 }
 
-// streamingBody pairs a live upstream connection with the Reader draining it.
-// Close() tears down the connection once the caller has consumed the body.
 type streamingBody struct {
 	io.Reader
 	closer io.Closer
