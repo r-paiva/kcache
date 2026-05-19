@@ -108,11 +108,51 @@ func TestHostDifferentKey(t *testing.T) {
 }
 
 func TestVaryHeaderAbsentSameKey(t *testing.T) {
-	// Two requests that both lack the vary header must share the same cache key.
 	cfg := cachekey.Config{VaryHeaders: []string{"Authorization"}}
 	r1 := req("GET", "http://example.com/")
 	r2 := req("GET", "http://example.com/")
 	if cachekey.Generate(r1, nil, cfg) != cachekey.Generate(r2, nil, cfg) {
 		t.Fatal("absent vary header should not break key equality between identical requests")
+	}
+}
+
+func TestVaryHeaderPresentVsAbsentDiffers(t *testing.T) {
+	cfg := cachekey.Config{VaryHeaders: []string{"Authorization"}}
+	with := req("GET", "http://example.com/")
+	with.Header.Set("Authorization", "Bearer token")
+	without := req("GET", "http://example.com/")
+	if cachekey.Generate(with, nil, cfg) == cachekey.Generate(without, nil, cfg) {
+		t.Fatal("request with vary header should differ from one without it")
+	}
+}
+
+func TestReqHostFieldOverridesURLHost(t *testing.T) {
+	cfg := cachekey.Config{}
+	r := req("GET", "http://url-host.example.com/path")
+	r.Host = "override-host.example.com"
+	k1 := cachekey.Generate(r, nil, cfg)
+	k2 := cachekey.Generate(req("GET", "http://override-host.example.com/path"), nil, cfg)
+	if k1 != k2 {
+		t.Fatal("req.Host should take precedence over req.URL.Host")
+	}
+}
+
+func TestNilAndEmptyBodyEquivalentWithIncludeBody(t *testing.T) {
+	cfg := cachekey.Config{IncludeBody: true}
+	r := req("POST", "http://example.com/")
+	if cachekey.Generate(r, nil, cfg) != cachekey.Generate(r, []byte{}, cfg) {
+		t.Fatal("nil and empty body should produce the same key")
+	}
+}
+
+func TestKeyIsHexSHA256(t *testing.T) {
+	k := cachekey.Generate(req("GET", "http://example.com/"), nil, cachekey.Config{})
+	if len(k) != 64 {
+		t.Fatalf("expected 64-char hex key, got len %d", len(k))
+	}
+	for _, c := range k {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			t.Fatalf("key contains non-hex character: %c", c)
+		}
 	}
 }
