@@ -249,6 +249,30 @@ func doGetWithHeader(t *testing.T, proxyAddr, path, host, headerName, headerVal 
 	return resp
 }
 
+// doGetWithHeaderReadBody sends a GET with one extra header and returns the response and body.
+func doGetWithHeaderReadBody(t *testing.T, proxyAddr, path, host, headerName, headerVal string) (*http.Response, []byte) {
+	t.Helper()
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	req, _ := http.NewRequest("GET", "http://"+host+path, nil)
+	req.Header.Set("Connection", "close")
+	req.Header.Set(headerName, headerVal)
+	if err := req.Write(conn); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp, body
+}
+
 // doGetReadBody sends a GET and returns the response together with the body bytes.
 func doGetReadBody(t *testing.T, proxyAddr, path, host string) (*http.Response, []byte) {
 	t.Helper()
@@ -560,5 +584,96 @@ func TestVaryHeadersPartitionCache(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("third request should not have reached upstream; calls: %d", calls)
+	}
+}
+
+func TestVaryBodyCorrectnessPerVariant(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Vary", "Accept-Encoding")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("encoding:" + r.Header.Get("Accept-Encoding"))) //nolint:errcheck
+	}))
+	defer upstream.Close()
+
+	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
+	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
+	c := cache.New(0, nil)
+	proxyAddr := startProxy(t, c, pol, upstream)
+
+	_, body1 := doGetWithHeaderReadBody(t, proxyAddr, "/data", "example.com", "Accept-Encoding", "gzip")
+	_, body2 := doGetWithHeaderReadBody(t, proxyAddr, "/data", "example.com", "Accept-Encoding", "identity")
+
+	r3, body3 := doGetWithHeaderReadBody(t, proxyAddr, "/data", "example.com", "Accept-Encoding", "gzip")
+	r4, body4 := doGetWithHeaderReadBody(t, proxyAddr, "/data", "example.com", "Accept-Encoding", "identity")
+
+	if r3.Header.Get("X-Cache") != "HIT" {
+		t.Fatal("gzip variant second request should be a cache hit")
+	}
+	if r4.Header.Get("X-Cache") != "HIT" {
+		t.Fatal("identity variant second request should be a cache hit")
+	}
+	if string(body3) != string(body1) {
+		t.Fatalf("gzip cache hit: got body %q, want %q", body3, body1)
+	}
+	if string(body4) != string(body2) {
+		t.Fatalf("identity cache hit: got body %q, want %q", body4, body2)
+	}
+}
+
+func TestPolicyAndUpstreamVaryMerge(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Vary", "Accept-Encoding")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
+	pol := policy.New([]policy.Rule{{
+		Host:        "*",
+		Port:        upstreamPort,
+		TTL:         time.Minute,
+		VaryHeaders: []string{"Authorization"},
+	}})
+	c := cache.New(0, nil)
+	proxyAddr := startProxy(t, c, pol, upstream)
+
+	// Three distinct combinations of the two vary dimensions.
+	send := func(auth, enc string) *http.Response {
+		conn, err := net.Dial("tcp", proxyAddr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		req, _ := http.NewRequest("GET", "http://example.com/api", nil)
+		req.Header.Set("Connection", "close")
+		req.Header.Set("Authorization", auth)
+		req.Header.Set("Accept-Encoding", enc)
+		if err := req.Write(conn); err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.ReadAll(resp.Body) //nolint:errcheck
+		resp.Body.Close()
+		return resp
+	}
+
+	send("Bearer a", "gzip")     // miss
+	send("Bearer a", "identity") // miss — different Accept-Encoding
+	send("Bearer b", "gzip")     // miss — different Authorization
+	if calls != 3 {
+		t.Fatalf("expected 3 upstream calls for 3 unique variants, got %d", calls)
+	}
+
+	r := send("Bearer a", "gzip") // should hit
+	if r.Header.Get("X-Cache") != "HIT" {
+		t.Fatal("repeated (auth, encoding) pair should be a cache hit")
+	}
+	if calls != 3 {
+		t.Fatalf("fourth request should not have reached upstream; calls: %d", calls)
 	}
 }

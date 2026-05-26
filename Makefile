@@ -35,12 +35,12 @@ MONITORING_NS := monitoring
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
-all: generate build
+all: build
 
 generate:
 	go generate ./...
 
-build:
+build: generate
 	go build -o $(BINARY) .
 
 test:

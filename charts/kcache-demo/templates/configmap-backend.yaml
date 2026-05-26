@@ -51,6 +51,15 @@ data:
             return 200 '(function(){"use strict";const API="/api";async function fetchProducts(){const r=await fetch(API+"/products");return r.json()}async function fetchUsers(){const r=await fetch(API+"/users");return r.json()}async function fetchOrders(){const r=await fetch(API+"/orders");return r.json()}window.App={fetchProducts,fetchUsers,fetchOrders};})();';
         }
 
+        # Vary test — echoes Accept-Encoding back as the body and sets Vary.
+        # Used by tests/test-cache.sh to verify kcache partitions the cache
+        # correctly per variant without needing a real compression stack.
+        location /vary-test {
+            default_type text/plain;
+            add_header Vary "Accept-Encoding";
+            return 200 "accept-encoding:$http_accept_encoding";
+        }
+
         # Root — simple HTML page
         location / {
             default_type text/html;

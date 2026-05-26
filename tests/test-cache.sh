@@ -43,6 +43,28 @@ req() {
   fi
 }
 
+# req_vary <pod> <url> <accept-encoding>
+# Prints X-Cache status to stderr (visible on terminal).
+# Writes the response body to stdout (for capture with $(...)).
+req_vary() {
+  local pod=$1 url=$2 encoding=$3
+  local full xcache body
+  full=$(K exec -n "$NS" "$pod" -- \
+    curl -s -D - -H "Accept-Encoding: $encoding" "$url" 2>/dev/null \
+    | tr -d '\r') || true
+
+  xcache=$(echo "$full" | grep -i "^x-cache:" | awk '{print $2}')
+  vary=$(echo "$full"   | grep -i "^vary:"    | head -1)
+  body=$(echo "$full"  | awk '/^$/{p=1;next} p{print;exit}')
+
+  if   [[ "$xcache" == "HIT"  ]]; then green "  X-Cache: HIT   body: ${body}" >&2
+  elif [[ "$xcache" == "MISS" ]]; then red   "  X-Cache: MISS  body: ${body}${vary:+  (${vary})}" >&2
+  else printf '  (no X-Cache)  body: %s\n' "$body" >&2
+  fi
+
+  printf '%s' "$body"
+}
+
 # ── discover resources ─────────────────────────────────────────────────────────
 
 BACKEND_SVC=$(K get svc -n "$NS" \
@@ -112,6 +134,46 @@ if [[ ${#PODS[@]} -gt 1 ]]; then
   done
   echo ""
 fi
+
+# ── test 3: vary header partitioning ──────────────────────────────────────────
+
+bold "── 3. vary header partitioning (${BASE}/vary-test)"
+
+FAIL=0
+
+echo "   req 1 gzip     (expect MISS):"
+body_gzip_1=$(req_vary "$FIRST" "${BASE}/vary-test" "gzip")
+echo ""
+
+echo "   req 2 gzip     (expect HIT, body must match req 1):"
+body_gzip_2=$(req_vary "$FIRST" "${BASE}/vary-test" "gzip")
+echo ""
+
+echo "   req 3 identity (expect MISS — different variant):"
+body_id_1=$(req_vary   "$FIRST" "${BASE}/vary-test" "identity")
+echo ""
+
+echo "   req 4 identity (expect HIT, body must match req 3):"
+body_id_2=$(req_vary   "$FIRST" "${BASE}/vary-test" "identity")
+echo ""
+
+if [[ "$body_gzip_2" != "$body_gzip_1" ]]; then
+  red   "   FAIL: gzip HIT returned wrong body (got '$body_gzip_2', want '$body_gzip_1')"
+  FAIL=1
+fi
+if [[ "$body_id_2" != "$body_id_1" ]]; then
+  red   "   FAIL: identity HIT returned wrong body (got '$body_id_2', want '$body_id_1')"
+  FAIL=1
+fi
+if [[ "$body_gzip_1" == "$body_id_1" ]]; then
+  red   "   FAIL: gzip and identity variants returned identical bodies ('$body_gzip_1')"
+  FAIL=1
+fi
+
+if [[ $FAIL -eq 0 ]]; then
+  green "   vary partitioning OK — each variant cached and served correctly"
+fi
+echo ""
 
 bold "── done"
 echo "   logs:    kubectl ${CTX:+--context=$CTX }logs -n $NS -l app.kubernetes.io/component=kcache -f"

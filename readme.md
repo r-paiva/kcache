@@ -83,8 +83,6 @@ curl -s http://localhost:9090/metrics | grep '^kcache_'
 ## Current limitations
 
 - **HTTP only** — HTTPS traffic is not intercepted. to be implemented.
-- **In-memory cache** — cache is per-node and not persisted across restarts.
-- **No upstream `Vary` header support** — cache key does not automatically adapt to `Vary` response headers; use `varyHeaders` in the policy as a workaround.
 
 ## Building
 
