@@ -11,14 +11,11 @@ import (
 	"sort"
 )
 
-// Config controls which parts of the request contribute to the cache key.
 type Config struct {
 	IncludeBody bool
-	VaryHeaders []string // header names whose values are included in the key
+	VaryHeaders []string
 }
 
-// Generate returns a hex-encoded SHA-256 cache key for the given request.
-// body should be the raw request body bytes (may be nil).
 func Generate(req *http.Request, body []byte, cfg Config) string {
 	h := sha256.New()
 

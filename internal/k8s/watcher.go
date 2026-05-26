@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// Package k8s watches CachePolicy CRDs and pod events to provide dynamic,
-// namespace- and label-scoped cache policy to the kcache proxy.
 package k8s
 
 import (
@@ -129,7 +127,7 @@ func (w *Watcher) onPodAdd(obj any) {
 func (w *Watcher) onPodDelete(obj any) {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
-		// Tombstone object from the informer cache.
+		// Informer wraps evicted objects in a tombstone.
 		if d, ok := obj.(cache.DeletedFinalStateUnknown); ok {
 			pod, ok = d.Obj.(*corev1.Pod)
 			if !ok {

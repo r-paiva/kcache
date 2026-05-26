@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,7 +35,8 @@ type Proxy struct {
 	origDst      OrigDstFunc
 	namespaceFn  NamespaceFunc
 	dialTimeout  time.Duration
-	maxBodyBytes int64 // 0 means unlimited
+	maxBodyBytes int64
+	varyIndex    sync.Map // base key → []string of Vary header names seen from upstream
 }
 
 func New(c cache.Cache, p *policy.Policy, origDst OrigDstFunc, namespaceFn NamespaceFunc, maxBodyBytes int64) *Proxy {
@@ -159,7 +161,11 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 	rule := pol.Match(namespace, podLabels, host, origPort, req.Method, path)
 
 	if rule != nil && !reqBodyTooLarge {
-		key := cachekey.Generate(req, body, rule.KeyConfig())
+		baseKey := cachekey.Generate(req, nil, cachekey.Config{})
+		keyCfg := rule.KeyConfig()
+		keyCfg.VaryHeaders = mergeVaryHeaders(keyCfg.VaryHeaders, p.lookupVaryIndex(baseKey))
+		key := cachekey.Generate(req, body, keyCfg)
+
 		if entry, ok := p.cache.Get(key); ok {
 			start := time.Now()
 			writeEntry(w, entry)
@@ -184,8 +190,22 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 			return
 		}
 		if respEntry != nil {
+			varyHdr := respEntry.Header.Get("Vary")
+			if varyHdr == "*" {
+				metrics.Requests.WithLabelValues(host, req.Method, "bypass", path).Inc()
+				resp.Write(w)     //nolint:errcheck
+				resp.Body.Close() //nolint:errcheck
+				return
+			}
+			allVary := mergeVaryHeaders(rule.KeyConfig().VaryHeaders, parseVaryHeader(varyHdr))
+			p.storeVaryIndex(baseKey, allVary)
+			keyCfg.VaryHeaders = allVary
+			storeKey := cachekey.Generate(req, body, keyCfg)
+			if storeKey != key {
+				p.cache.Delete(key)
+			}
 			respEntry.TTL = rule.TTL
-			p.cache.Set(key, respEntry)
+			p.cache.Set(storeKey, respEntry)
 			metrics.ResponseSize.WithLabelValues(host, req.Method, path).Observe(float64(len(respEntry.Body)))
 			metrics.Requests.WithLabelValues(host, req.Method, "miss", path).Inc()
 			resp.Header.Set("X-Cache", "MISS")
@@ -202,7 +222,6 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 		return
 	}
 
-	// No matching rule: forward transparently without caching.
 	slog.Debug("no policy match, forwarding transparently",
 		"host", host, "method", req.Method, "path", req.URL.RequestURI())
 	_, resp := p.fetchUpstream(req, body, origAddr)
@@ -289,7 +308,6 @@ func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string) (*cac
 		return nil, resp
 	}
 
-	// No size limit: buffer everything.
 	respBody, readErr := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	upstream.Close()
@@ -315,6 +333,52 @@ type streamingBody struct {
 }
 
 func (s *streamingBody) Close() error { return s.closer.Close() }
+
+func (p *Proxy) lookupVaryIndex(baseKey string) []string {
+	if v, ok := p.varyIndex.Load(baseKey); ok {
+		return v.([]string)
+	}
+	return nil
+}
+
+func (p *Proxy) storeVaryIndex(baseKey string, headers []string) {
+	if len(headers) > 0 {
+		p.varyIndex.Store(baseKey, headers)
+	}
+}
+
+func parseVaryHeader(vary string) []string {
+	if vary == "" || vary == "*" {
+		return nil
+	}
+	parts := strings.Split(vary, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if h := strings.TrimSpace(p); h != "" {
+			out = append(out, http.CanonicalHeaderKey(h))
+		}
+	}
+	return out
+}
+
+func mergeVaryHeaders(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[string]struct{}, len(a)+len(b))
+	for _, h := range a {
+		seen[http.CanonicalHeaderKey(h)] = struct{}{}
+	}
+	for _, h := range b {
+		seen[http.CanonicalHeaderKey(h)] = struct{}{}
+	}
+	merged := make([]string, 0, len(seen))
+	for h := range seen {
+		merged = append(merged, h)
+	}
+	sort.Strings(merged)
+	return merged
+}
 
 func writeEntry(w io.Writer, e *cache.Entry) {
 	resp := &http.Response{

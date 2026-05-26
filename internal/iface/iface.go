@@ -2,12 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// Package iface manages TC BPF attachment to pod veth interfaces.
-// It attaches tc_ingress and tc_egress programs to every veth it discovers,
-// and watches for new veths as pods start.
-// (≥6.6), which places kcache in the same program chain as Cilium rather
-// than in the legacy cls_bpf chain. On older kernels it falls back to the
-// legacy cls_bpf filter mechanism.
 package iface
 
 import (
@@ -25,21 +19,19 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// linkCloser is the only operation we need from an attached BPF link.
-// Using a narrow interface keeps the Manager testable without a real kernel.
+// narrow interface so Manager is testable without a real kernel.
 type linkCloser interface {
 	Close() error
 }
 
-// podVethRe matches the naming patterns CNIs use for pod-facing veth interfaces:
-//   - Flannel / standard containerd: veth + 8 hex chars  (e.g. veth1a2b3c4d)
-//   - Cilium veth mode:              lxc  + 12 hex chars (e.g. lxcaf76531335cb)
-//   - Calico:                        cali + 10 hex chars (e.g. cali1a2b3c4d5e)
-// are deliberately excluded because attaching TC programs to them breaks Cilium's
-// internal packet forwarding.
+// podVethRe matches pod-facing veth interfaces by CNI naming convention:
+//   Flannel/containerd:  veth + 8 hex chars  (e.g. veth1a2b3c4d)
+//   Cilium veth mode:    lxc  + 12 hex chars (e.g. lxcaf76531335cb)
+//   Calico:              cali + 10 hex chars (e.g. cali1a2b3c4d5e)
+// Cilium's internal interfaces (cilium_net, cilium_host) are excluded — attaching
+// TC programs there breaks Cilium's packet forwarding.
 var podVethRe = regexp.MustCompile(`^(veth[0-9a-f]{7,}|lxc[0-9a-f]{8,}|cali[0-9a-f]{7,})$`)
 
-// Manager attaches TC BPF programs to pod veth interfaces and watches for new ones.
 type Manager struct {
 	ingress *ebpf.Program
 	egress  *ebpf.Program
@@ -56,7 +48,6 @@ func New(ingress, egress *ebpf.Program) *Manager {
 	}
 }
 
-// AttachExisting attaches to all veth interfaces that are already present.
 func (m *Manager) AttachExisting() error {
 	links, err := netlink.LinkList()
 	if err != nil {
@@ -73,8 +64,6 @@ func (m *Manager) AttachExisting() error {
 	return nil
 }
 
-// Watch subscribes to netlink link events and attaches TC programs to new veths.
-// Blocks until ctx is cancelled.
 func (m *Manager) Watch(ctx context.Context) {
 	ch := make(chan netlink.LinkUpdate, 16)
 	done := make(chan struct{})
@@ -107,11 +96,9 @@ func (m *Manager) Watch(ctx context.Context) {
 	}
 }
 
-// detach removes a deleted interface from the tracking map and closes any open
-// TCX links for it. The kernel has already removed the TC programs when the
-// interface was destroyed; we just need to release the file descriptors and
-// clear the entry so the ifindex can be reused by a future pod's veth.
 func (m *Manager) detach(ifindex int, name string) {
+	// Kernel already removed TC programs when the interface was destroyed;
+	// release the link FDs and free the ifindex for reuse by a future pod.
 	m.mu.Lock()
 	ls, ok := m.links[ifindex]
 	delete(m.links, ifindex)
@@ -136,16 +123,15 @@ func (m *Manager) attach(l netlink.Link) error {
 	m.mu.Lock()
 	if _, already := m.links[idx]; already {
 		m.mu.Unlock()
-		return nil // already attached to this interface
+		return nil
 	}
 	m.mu.Unlock()
 
 	var ls []linkCloser
 
-	// Try TCX first — puts us in the same program chain as Cilium (kernel ≥6.6).
+	// TCX (kernel ≥6.6) puts kcache in the same chain as Cilium; fall back to cls_bpf.
 	ing, egr, err := attachTCX(idx, m.ingress, m.egress)
 	if err != nil {
-		// Fall back to legacy cls_bpf filter if TCX is not supported.
 		slog.Debug("TCX not available, falling back to cls_bpf", "iface", name, "err", err)
 		if err2 := attachLegacy(idx, m.ingress, m.egress); err2 != nil {
 			return fmt.Errorf("attach TC (tcx: %v, legacy: %w)", err, err2)
@@ -162,12 +148,8 @@ func (m *Manager) attach(l netlink.Link) error {
 	return nil
 }
 
-// attachTCX attaches programs using the TCX bpf_link mechanism (kernel ≥6.6).
-// Both programs are inserted at the HEAD of their respective chains so they
-// run before any existing programs (e.g. Cilium's cil_from_container), which
-// is required because Cilium returns TC_ACT_REDIRECT and would terminate the
-// chain before kcache's program gets to run.
-// Returns the ingress and egress links, which must be kept alive.
+// link.Head() is required — Cilium's TC programs return TC_ACT_REDIRECT which
+// terminates the chain, so kcache must run before them.
 func attachTCX(ifindex int, ingress, egress *ebpf.Program) (link.Link, link.Link, error) {
 	ing, err := link.AttachTCX(link.TCXOptions{
 		Interface: ifindex,
@@ -193,7 +175,6 @@ func attachTCX(ifindex int, ingress, egress *ebpf.Program) (link.Link, link.Link
 	return ing, egr, nil
 }
 
-// attachLegacy attaches programs using the traditional cls_bpf TC filter mechanism.
 func attachLegacy(ifindex int, ingress, egress *ebpf.Program) error {
 	if err := ensureClsact(ifindex); err != nil {
 		return fmt.Errorf("clsact qdisc: %w", err)

@@ -17,7 +17,7 @@ IMAGE_TAG     ?= dev
 CLUSTERS      := flannel cilium calico
 MONITORING_NS := monitoring
 
-.PHONY: all build generate test test-v test-race fmt vet lint clean \
+.PHONY: all build generate test test-v test-race cover cover-html fmt vet lint clean \
         run run-debug run-stats trace metrics metrics-watch deps tidy \
         cluster-create-all cluster-create-flannel cluster-create-cilium cluster-create-calico \
         cluster-delete-all cluster-delete-flannel cluster-delete-cilium cluster-delete-calico \
@@ -51,6 +51,13 @@ test-v:
 
 test-race:
 	go test -race ./internal/...
+
+cover:
+	go test -coverprofile=coverage.out -covermode=atomic ./internal/...
+	go tool cover -func=coverage.out
+
+cover-html: cover
+	go tool cover -html=coverage.out
 
 fmt:
 	gofmt -w -s .
@@ -91,6 +98,7 @@ deps:
 clean:
 	rm -f $(BINARY)
 	rm -f kcache_bpfel.go kcache_bpfeb.go kcache_bpfel.o kcache_bpfeb.o
+	rm -f coverage.out coverage.html
 
 # ── Image ─────────────────────────────────────────────────────────────────────
 

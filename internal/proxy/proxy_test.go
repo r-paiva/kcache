@@ -479,6 +479,56 @@ func TestOversizedResponseBodyDelivered(t *testing.T) {
 	}
 }
 
+func TestUpstreamVaryAutoPartition(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Vary", "Accept-Encoding")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(r.Header.Get("Accept-Encoding"))) //nolint:errcheck
+	}))
+	defer upstream.Close()
+
+	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
+	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
+	c := cache.New(0, nil)
+	proxyAddr := startProxy(t, c, pol, upstream)
+
+	doGetWithHeader(t, proxyAddr, "/data", "example.com", "Accept-Encoding", "gzip")
+	r2 := doGetWithHeader(t, proxyAddr, "/data", "example.com", "Accept-Encoding", "gzip")
+	if r2.Header.Get("X-Cache") != "HIT" {
+		t.Fatal("second request with same Accept-Encoding should be a cache hit")
+	}
+	doGetWithHeader(t, proxyAddr, "/data", "example.com", "Accept-Encoding", "identity")
+	if calls != 2 {
+		t.Fatalf("expected 2 upstream calls (gzip + identity), got %d", calls)
+	}
+}
+
+func TestVaryStarSkipCache(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Vary", "*")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
+	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
+	c := cache.New(0, nil)
+	proxyAddr := startProxy(t, c, pol, upstream)
+
+	doRequest(t, proxyAddr, "GET", "/dynamic", "example.com")
+	doRequest(t, proxyAddr, "GET", "/dynamic", "example.com")
+	if calls != 2 {
+		t.Fatalf("Vary: * should never be cached; expected 2 upstream calls, got %d", calls)
+	}
+	if c.Len() != 0 {
+		t.Fatalf("cache should be empty after Vary: * responses, got %d entries", c.Len())
+	}
+}
+
 func TestVaryHeadersPartitionCache(t *testing.T) {
 	calls := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

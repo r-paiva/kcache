@@ -53,11 +53,9 @@ func (p *Policy) Match(namespace string, podLabels map[string]string, host strin
 	for i := range p.rules {
 		r := &p.rules[i]
 
-		// Namespace must match if set.
 		if r.Namespace != "" && r.Namespace != namespace {
 			continue
 		}
-		// Pod selector must match if set.
 		if r.PodSelector != nil && !r.PodSelector.Empty() && !r.PodSelector.Matches(podSet) {
 			continue
 		}

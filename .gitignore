@@ -8,3 +8,5 @@ kcache_bpfeb.go
 *.o
 docs/
 NEXT_PHASE.md
+coverage.out
+coverage.html

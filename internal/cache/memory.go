@@ -49,9 +49,8 @@ func (s *store) Set(key string, e *Entry) {
 
 	newSize := e.size()
 
-	s.removeLocked(key) // drop any existing entry for this key first
+	s.removeLocked(key)
 
-	// Evict until there is room, or give up and drop this entry.
 	if s.maxBytes > 0 {
 		for s.totalBytes.Load()+newSize > s.maxBytes {
 			if !s.evictOneLocked(true) && !s.evictOneLocked(false) {
