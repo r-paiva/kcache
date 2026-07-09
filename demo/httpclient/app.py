@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Copyright (c) 2026, the k-cache developers
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """
 kcache canary — quiet background validator. Two check schedules:
 
