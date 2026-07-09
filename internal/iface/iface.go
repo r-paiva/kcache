@@ -24,26 +24,36 @@ type linkCloser interface {
 	Close() error
 }
 
-// podVethRe matches pod-facing veth interfaces by CNI naming convention:
+// DefaultIfacePattern matches pod-facing veth interfaces by CNI naming convention:
 //   Flannel/containerd:  veth + 8 hex chars  (e.g. veth1a2b3c4d)
 //   Cilium veth mode:    lxc  + 12 hex chars (e.g. lxcaf76531335cb)
 //   Calico:              cali + 10 hex chars (e.g. cali1a2b3c4d5e)
 // Cilium's internal interfaces (cilium_net, cilium_host) are excluded — attaching
 // TC programs there breaks Cilium's packet forwarding.
-var podVethRe = regexp.MustCompile(`^(veth[0-9a-f]{7,}|lxc[0-9a-f]{8,}|cali[0-9a-f]{7,})$`)
+//
+// NOTE: on nodes that run both k8s (Flannel/containerd) and Docker, the veth
+// pattern also matches Docker container interfaces because Docker uses the same
+// naming scheme. On Cilium clusters use the narrower "lxc[0-9a-f]{8,}" pattern
+// via the --iface-pattern flag to restrict interception to k8s pods only.
+const DefaultIfacePattern = `^(veth[0-9a-f]{7,}|lxc[0-9a-f]{8,}|cali[0-9a-f]{7,})$`
 
 type Manager struct {
 	ingress *ebpf.Program
 	egress  *ebpf.Program
+	podRe   *regexp.Regexp
 
 	mu    sync.Mutex
 	links map[int][]linkCloser // ifindex → open TCX links for that interface
 }
 
-func New(ingress, egress *ebpf.Program) *Manager {
+// New creates a Manager that attaches TC BPF programs to interfaces whose names
+// match pattern. pattern must be a valid Go regexp; wrap it in ^(...)$ to anchor
+// it. Pass DefaultIfacePattern unless you need CNI-specific narrowing.
+func New(ingress, egress *ebpf.Program, pattern string) *Manager {
 	return &Manager{
 		ingress: ingress,
 		egress:  egress,
+		podRe:   regexp.MustCompile(pattern),
 		links:   make(map[int][]linkCloser),
 	}
 }
@@ -54,7 +64,7 @@ func (m *Manager) AttachExisting() error {
 		return fmt.Errorf("list links: %w", err)
 	}
 	for _, l := range links {
-		if !isPodVeth(l) {
+		if !m.isPodVeth(l) {
 			continue
 		}
 		if err := m.attach(l); err != nil {
@@ -83,7 +93,7 @@ func (m *Manager) Watch(ctx context.Context) {
 			}
 			switch update.Header.Type {
 			case unix.RTM_NEWLINK:
-				if !isPodVeth(update.Link) {
+				if !m.isPodVeth(update.Link) {
 					continue
 				}
 				if err := m.attach(update.Link); err != nil {
@@ -112,8 +122,8 @@ func (m *Manager) detach(ifindex int, name string) {
 	slog.Info("TC BPF detached", "iface", name)
 }
 
-func isPodVeth(l netlink.Link) bool {
-	return l.Type() == "veth" && podVethRe.MatchString(l.Attrs().Name)
+func (m *Manager) isPodVeth(l netlink.Link) bool {
+	return l.Type() == "veth" && m.podRe.MatchString(l.Attrs().Name)
 }
 
 func (m *Manager) attach(l netlink.Link) error {

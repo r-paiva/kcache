@@ -21,6 +21,8 @@ spec:
         {{- include "kcache-demo.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: backend
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: paiva-desktop
       containers:
         - name: backend
           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
@@ -29,13 +31,28 @@ spec:
             - name: http
               containerPort: 80
               protocol: TCP
+            {{- if .Values.backend.tls.secretName }}
+            - name: https
+              containerPort: 443
+              protocol: TCP
+            {{- end }}
           # No probes — kubelet probes to pod-ip:80 are intercepted by BPF.
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
           volumeMounts:
             - name: nginx-config
               mountPath: /etc/nginx/conf.d
+            {{- if .Values.backend.tls.secretName }}
+            - name: tls
+              mountPath: /etc/nginx/ssl
+              readOnly: true
+            {{- end }}
       volumes:
         - name: nginx-config
           configMap:
             name: {{ include "kcache-demo.fullname" . }}-backend-config
+        {{- if .Values.backend.tls.secretName }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.backend.tls.secretName }}
+        {{- end }}

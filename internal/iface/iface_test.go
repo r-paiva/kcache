@@ -5,6 +5,7 @@
 package iface
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/vishvananda/netlink"
@@ -64,9 +65,10 @@ func TestIsPodVeth(t *testing.T) {
 		{"cali name but wrong type", dummy("cali4b85ddffbda"), false},
 	}
 
+	mgr := &Manager{podRe: regexp.MustCompile(DefaultIfacePattern)}
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
-			if got := isPodVeth(tt.link); got != tt.want {
+			if got := mgr.isPodVeth(tt.link); got != tt.want {
 				t.Errorf("isPodVeth(%q, type=%q) = %v, want %v",
 					tt.link.name, tt.link.linkTyp, got, tt.want)
 			}
@@ -83,7 +85,7 @@ func (m *mockCloser) Close() error {
 }
 
 func TestDetach_UnknownIfindex(t *testing.T) {
-	mgr := &Manager{links: make(map[int][]linkCloser)}
+	mgr := &Manager{podRe: regexp.MustCompile(DefaultIfacePattern), links: make(map[int][]linkCloser)}
 	mgr.detach(99, "veth99")
 	if len(mgr.links) != 0 {
 		t.Error("links map should remain empty")
@@ -93,6 +95,7 @@ func TestDetach_UnknownIfindex(t *testing.T) {
 func TestDetach_ClosesLinksAndRemovesEntry(t *testing.T) {
 	a, b := &mockCloser{}, &mockCloser{}
 	mgr := &Manager{
+		podRe: regexp.MustCompile(DefaultIfacePattern),
 		links: map[int][]linkCloser{
 			5: {a, b},
 		},
@@ -111,6 +114,7 @@ func TestDetach_ClosesLinksAndRemovesEntry(t *testing.T) {
 func TestDetach_LeavesOtherEntriesIntact(t *testing.T) {
 	keep := &mockCloser{}
 	mgr := &Manager{
+		podRe: regexp.MustCompile(DefaultIfacePattern),
 		links: map[int][]linkCloser{
 			1: {&mockCloser{}},
 			2: {keep},
@@ -133,6 +137,7 @@ func TestDetach_LeavesOtherEntriesIntact(t *testing.T) {
 func TestDetach_EmptyLinkSlice(t *testing.T) {
 	// Legacy cls_bpf path stores an empty slice; detach must not panic.
 	mgr := &Manager{
+		podRe: regexp.MustCompile(DefaultIfacePattern),
 		links: map[int][]linkCloser{
 			3: {}, // legacy attach: no TCX link objects
 		},

@@ -7,6 +7,8 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,6 +24,7 @@ import (
 	"kache/internal/cachekey"
 	"kache/internal/metrics"
 	"kache/internal/policy"
+	"kache/internal/tlsmitm"
 )
 
 type OrigDstFunc func(conn net.Conn) (ip net.IP, port uint16, err error)
@@ -37,9 +40,15 @@ type Proxy struct {
 	dialTimeout  time.Duration
 	maxBodyBytes int64
 	varyIndex    sync.Map // base key → []string of Vary header names seen from upstream
+	ca           *tlsmitm.CA
+	upstreamPool *x509.CertPool
 }
 
-func New(c cache.Cache, p *policy.Policy, origDst OrigDstFunc, namespaceFn NamespaceFunc, maxBodyBytes int64) *Proxy {
+func New(c cache.Cache, p *policy.Policy, origDst OrigDstFunc, namespaceFn NamespaceFunc, maxBodyBytes int64, ca *tlsmitm.CA) *Proxy {
+	var upstreamPool *x509.CertPool
+	if ca != nil {
+		upstreamPool = ca.CertPool()
+	}
 	return &Proxy{
 		cache:        c,
 		policy:       p,
@@ -47,6 +56,8 @@ func New(c cache.Cache, p *policy.Policy, origDst OrigDstFunc, namespaceFn Names
 		namespaceFn:  namespaceFn,
 		dialTimeout:  10 * time.Second,
 		maxBodyBytes: maxBodyBytes,
+		ca:           ca,
+		upstreamPool: upstreamPool,
 	}
 }
 
@@ -76,6 +87,15 @@ func (p *Proxy) Serve(ln net.Listener) error {
 	}
 }
 
+// peekConn wraps a net.Conn so that Read is served from r first (holding bytes
+// already peeked from the underlying conn), then falls through to the conn.
+type peekConn struct {
+	net.Conn
+	r io.Reader
+}
+
+func (c *peekConn) Read(b []byte) (int, error) { return c.r.Read(b) }
+
 func (p *Proxy) handleConn(conn net.Conn) {
 	defer conn.Close()
 
@@ -94,7 +114,17 @@ func (p *Proxy) handleConn(conn net.Conn) {
 	}
 
 	origAddr := net.JoinHostPort(origIP.String(), strconv.Itoa(int(origPort)))
+	slog.Debug("conn intercepted", "src", conn.RemoteAddr(), "dst", origAddr, "port", origPort)
 	br := bufio.NewReader(conn)
+
+	if origPort == 443 {
+		p.handleTLSConn(conn, br, origAddr, origPort, namespace, podLabels)
+		return
+	}
+
+	plainDial := func(addr string) (net.Conn, error) {
+		return (&net.Dialer{Timeout: p.dialTimeout}).Dial("tcp", addr)
+	}
 
 	for {
 		req, err := http.ReadRequest(br)
@@ -106,7 +136,7 @@ func (p *Proxy) handleConn(conn net.Conn) {
 		}
 
 		keepAlive := req.ProtoAtLeast(1, 1) && !strings.EqualFold(req.Header.Get("Connection"), "close")
-		p.handleRequest(req, origAddr, origPort, namespace, podLabels, conn)
+		p.handleRequest(req, origAddr, origPort, namespace, podLabels, conn, plainDial)
 
 		if !keepAlive {
 			return
@@ -114,7 +144,80 @@ func (p *Proxy) handleConn(conn net.Conn) {
 	}
 }
 
-func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint16, namespace string, podLabels map[string]string, w io.Writer) {
+func (p *Proxy) handleTLSConn(conn net.Conn, br *bufio.Reader, origAddr string, origPort uint16, namespace string, podLabels map[string]string) {
+	sni, err := tlsmitm.PeekSNI(br)
+	if err != nil {
+		slog.Debug("TLS SNI peek failed, splicing", "remote", conn.RemoteAddr(), "err", err)
+		p.spliceTo(conn, br, origAddr)
+		return
+	}
+
+	p.mu.RLock()
+	pol := p.policy
+	p.mu.RUnlock()
+
+	if p.ca == nil || !pol.HasRuleForHostPort(sni, origPort) {
+		slog.Debug("no TLS MITM (no CA or no policy match), splicing",
+			"sni", sni, "remote", conn.RemoteAddr())
+		p.spliceTo(conn, br, origAddr)
+		return
+	}
+
+	slog.Debug("TLS MITM: intercepting", "sni", sni, "src", conn.RemoteAddr(), "dst", origAddr)
+	tlsCfg := &tls.Config{GetCertificate: p.ca.GetCertificate}
+	tlsConn := tls.Server(&peekConn{Conn: conn, r: br}, tlsCfg)
+	_ = tlsConn.SetDeadline(time.Now().Add(p.dialTimeout))
+	if err := tlsConn.Handshake(); err != nil {
+		slog.Debug("TLS handshake failed", "sni", sni, "err", err)
+		return
+	}
+	_ = tlsConn.SetDeadline(time.Time{})
+	slog.Debug("TLS MITM: handshake ok", "sni", sni)
+	defer tlsConn.Close()
+
+	tlsDial := func(addr string) (net.Conn, error) {
+		return tls.DialWithDialer(
+			&net.Dialer{Timeout: p.dialTimeout},
+			"tcp", addr,
+			&tls.Config{
+				ServerName: sni,
+				RootCAs:    p.upstreamPool,
+			},
+		)
+	}
+
+	tlsBR := bufio.NewReader(tlsConn)
+	for {
+		req, err := http.ReadRequest(tlsBR)
+		if err != nil {
+			if err != io.EOF && !strings.Contains(err.Error(), "connection reset") {
+				slog.Debug("TLS read request", "sni", sni, "err", err)
+			}
+			return
+		}
+		if req.Host == "" {
+			req.Host = sni
+		}
+
+		keepAlive := req.ProtoAtLeast(1, 1) && !strings.EqualFold(req.Header.Get("Connection"), "close")
+		p.handleRequest(req, origAddr, origPort, namespace, podLabels, tlsConn, tlsDial)
+
+		if !keepAlive {
+			return
+		}
+	}
+}
+
+func (p *Proxy) spliceTo(conn net.Conn, br *bufio.Reader, origAddr string) {
+	upstream, err := (&net.Dialer{Timeout: p.dialTimeout}).Dial("tcp", origAddr)
+	if err != nil {
+		slog.Debug("splice dial failed", "addr", origAddr, "err", err)
+		return
+	}
+	tlsmitm.Splice(&peekConn{Conn: conn, r: br}, upstream)
+}
+
+func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint16, namespace string, podLabels map[string]string, w io.Writer, dial func(string) (net.Conn, error)) {
 	host := req.Host
 	if host == "" {
 		host = origAddr
@@ -133,7 +236,6 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 			lr := &io.LimitedReader{R: origBody, N: p.maxBodyBytes + 1}
 			partial, _ := io.ReadAll(lr)
 			if lr.N == 0 {
-				// Body exceeded limit; reassemble for streaming to upstream.
 				req.Body = io.NopCloser(io.MultiReader(bytes.NewReader(partial), origBody))
 				reqBodyTooLarge = true
 				metrics.CacheSkipsRequestBodyTooLarge.WithLabelValues(host).Inc()
@@ -161,8 +263,9 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 	rule := pol.Match(namespace, podLabels, host, origPort, req.Method, path)
 
 	if rule != nil && !reqBodyTooLarge {
-		baseKey := cachekey.Generate(req, nil, cachekey.Config{})
+		baseKey := cachekey.Generate(req, nil, cachekey.Config{Port: origPort})
 		keyCfg := rule.KeyConfig()
+		keyCfg.Port = origPort
 		keyCfg.VaryHeaders = mergeVaryHeaders(keyCfg.VaryHeaders, p.lookupVaryIndex(baseKey))
 		key := cachekey.Generate(req, body, keyCfg)
 
@@ -183,7 +286,7 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 			"host", host, "method", req.Method, "path", req.URL.RequestURI(),
 			"upstream", origAddr)
 
-		respEntry, resp := p.fetchUpstream(req, body, origAddr)
+		respEntry, resp := p.fetchUpstream(req, body, origAddr, dial)
 		if resp == nil {
 			metrics.Requests.WithLabelValues(host, req.Method, "error", path).Inc()
 			writeBadGateway(w)
@@ -224,7 +327,7 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 
 	slog.Debug("no policy match, forwarding transparently",
 		"host", host, "method", req.Method, "path", req.URL.RequestURI())
-	_, resp := p.fetchUpstream(req, body, origAddr)
+	_, resp := p.fetchUpstream(req, body, origAddr, dial)
 	if resp == nil {
 		metrics.Requests.WithLabelValues(host, req.Method, "error", path).Inc()
 		writeBadGateway(w)
@@ -235,12 +338,11 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 	resp.Body.Close() //nolint:errcheck
 }
 
-func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string) (*cache.Entry, *http.Response) {
+func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string, dial func(string) (net.Conn, error)) (*cache.Entry, *http.Response) {
 	host := req.Host
 	start := time.Now()
 
-	dialer := net.Dialer{Timeout: p.dialTimeout}
-	upstream, err := dialer.Dial("tcp", addr)
+	upstream, err := dial(addr)
 	if err != nil {
 		slog.Error("dial upstream", "addr", addr, "err", err)
 		return nil, nil
@@ -270,7 +372,10 @@ func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string) (*cac
 	if urlPath == "" {
 		urlPath = "/"
 	}
-	metrics.UpstreamLatency.WithLabelValues(host, urlPath).Observe(time.Since(start).Seconds())
+	elapsed := time.Since(start)
+	metrics.UpstreamLatency.WithLabelValues(host, urlPath).Observe(elapsed.Seconds())
+	slog.Debug("upstream response", "host", host, "method", req.Method, "path", urlPath,
+		"status", resp.StatusCode, "latency", elapsed)
 
 	if p.maxBodyBytes > 0 {
 		lr := &io.LimitedReader{R: resp.Body, N: p.maxBodyBytes + 1}

@@ -13,6 +13,11 @@ data:
   default.conf: |
     server {
         listen 80;
+        {{- if .Values.backend.tls.secretName }}
+        listen 443 ssl;
+        ssl_certificate     /etc/nginx/ssl/tls.crt;
+        ssl_certificate_key /etc/nginx/ssl/tls.key;
+        {{- end }}
         server_name _;
 
         # Small JSON — simulates a lightweight status/health API

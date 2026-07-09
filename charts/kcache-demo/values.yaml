@@ -9,15 +9,27 @@
 kcache:
     enabled: true
     image:
-        repository: kcache
+        repository: rpaiva0/kcache
         tag: dev
-        pullPolicy: Never
+        pullPolicy: Always
     proxyAddr: "0.0.0.0:8080"
     logLevel: debug
     maxCacheBytes: 268435456 # 256 MiB total cache budget
     maxBodyBytes: 1048576 # 1 MiB per response
     metrics:
         port: 9090
+    tls:
+        # Name of a Secret containing tls.crt (CA cert) and tls.key (CA private key).
+        # Leave empty to disable TLS interception (HTTP-only mode).
+        caSecretName: ""
+    # Regexp matching host-side veth names to attach TC BPF to.
+    # Default covers Flannel (veth*), Cilium (lxc*), and Calico (cali*).
+    # On Cilium clusters set to "lxc[0-9a-f]{8,}" to avoid intercepting Docker containers.
+    ifacePattern: ""
+    # Optional JSON log file name written to /var/log/kcache/ on the host node.
+    # Leave empty to disable. Set e.g. "kcache.json" to enable — then SSH to the node
+    # and tail /var/log/kcache/kcache.json, or: kubectl cp <pod>:/var/log/kcache/kcache.json .
+    logFile: ""
     resources:
         limits:
             cpu: 200m
@@ -26,11 +38,17 @@ kcache:
             cpu: 100m
             memory: 128Mi
 
-# Simple nginx backend that the curl clients will call on port 80.
-# kcache intercepts all outgoing port-80 connections, so the first
+# Simple nginx backend that the curl clients will call on port 80 (and 443 when tls is enabled).
+# kcache intercepts all outgoing port-80/443 connections, so the first
 # request will be a cache MISS and subsequent ones will be HITs.
 backend:
     replicas: 1
+    tls:
+        # Name of a Secret containing tls.crt / tls.key for the backend's HTTPS listener.
+        # When set, the chart creates the Secret (self-signed) if it does not already exist,
+        # and the backend listens on 443 in addition to 80.
+        # Leave empty (default) for HTTP-only mode.
+        secretName: ""
     image:
         repository: nginx
         tag: alpine
@@ -42,6 +60,25 @@ backend:
         requests:
             cpu: 50m
             memory: 32Mi
+
+# Canary client — makes HTTP+HTTPS requests every few seconds and crashes
+# (exit 1) if any response fails validation. CrashLoopBackOff = regression.
+canary:
+    enabled: false
+    debug: false
+    image:
+        repository: rpaiva0/kcache-canary
+        tag: dev
+        pullPolicy: Always
+    interval: "5"   # seconds between rounds
+    jitter: "2"     # ± random seconds added to interval
+    resources:
+        limits:
+            cpu: 50m
+            memory: 32Mi
+        requests:
+            cpu: 10m
+            memory: 16Mi
 
 # Curl client pods — each runs "sleep infinity" so you can exec into
 # them and run requests, or let test-cache.sh drive them.

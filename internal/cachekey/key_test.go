@@ -145,6 +145,15 @@ func TestNilAndEmptyBodyEquivalentWithIncludeBody(t *testing.T) {
 	}
 }
 
+func TestPortDifferentKey(t *testing.T) {
+	r := req("GET", "http://example.com/api")
+	k80 := cachekey.Generate(r, nil, cachekey.Config{Port: 80})
+	k443 := cachekey.Generate(r, nil, cachekey.Config{Port: 443})
+	if k80 == k443 {
+		t.Fatal("same host+path on different ports should produce different cache keys")
+	}
+}
+
 func TestKeyIsHexSHA256(t *testing.T) {
 	k := cachekey.Generate(req("GET", "http://example.com/"), nil, cachekey.Config{})
 	if len(k) != 64 {

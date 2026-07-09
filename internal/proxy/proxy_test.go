@@ -34,7 +34,7 @@ func startProxy(t *testing.T, c cache.Cache, pol *policy.Policy, upstream *httpt
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := proxy.New(c, pol, mockOrigDst(upstream.Listener.Addr()), nil, 0)
+	p := proxy.New(c, pol, mockOrigDst(upstream.Listener.Addr()), nil, 0, nil)
 	go p.Serve(ln) //nolint:errcheck
 	t.Cleanup(func() { ln.Close() })
 	return ln.Addr().String()
@@ -160,7 +160,7 @@ func TestBodyTooLargeNotCached(t *testing.T) {
 		t.Fatal(err)
 	}
 	// maxBodyBytes=10, response is larger — should never be cached.
-	p := proxy.New(c, pol, mockOrigDst(upstream.Listener.Addr()), nil, 10)
+	p := proxy.New(c, pol, mockOrigDst(upstream.Listener.Addr()), nil, 10, nil)
 	go p.Serve(ln) //nolint:errcheck
 	t.Cleanup(func() { ln.Close() })
 	proxyAddr := ln.Addr().String()
@@ -392,7 +392,7 @@ func TestUpstreamUnreachable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := proxy.New(c, pol, mockOrigDst(deadAddr), nil, 0)
+	p := proxy.New(c, pol, mockOrigDst(deadAddr), nil, 0, nil)
 	go p.Serve(proxyLn) //nolint:errcheck
 	t.Cleanup(func() { proxyLn.Close() })
 
@@ -421,7 +421,7 @@ func TestRequestBodyTooLargeForwarded(t *testing.T) {
 		t.Fatal(err)
 	}
 	const bigBody = "hello world!!" // 13 bytes — exceeds maxBodyBytes=5
-	p := proxy.New(c, pol, mockOrigDst(upstream.Listener.Addr()), nil, 5)
+	p := proxy.New(c, pol, mockOrigDst(upstream.Listener.Addr()), nil, 5, nil)
 	go p.Serve(ln) //nolint:errcheck
 	t.Cleanup(func() { ln.Close() })
 	proxyAddr := ln.Addr().String()
@@ -493,7 +493,7 @@ func TestOversizedResponseBodyDelivered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := proxy.New(c, pol, mockOrigDst(upstream.Listener.Addr()), nil, 10)
+	p := proxy.New(c, pol, mockOrigDst(upstream.Listener.Addr()), nil, 10, nil)
 	go p.Serve(ln) //nolint:errcheck
 	t.Cleanup(func() { ln.Close() })
 

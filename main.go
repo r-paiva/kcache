@@ -30,19 +30,73 @@ import (
 	"kache/internal/origdst"
 	"kache/internal/policy"
 	"kache/internal/proxy"
+	"kache/internal/tlsmitm"
+	"kache/internal/version"
 )
+
+type multiHandler []slog.Handler
+
+func (m multiHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	for _, h := range m {
+		if h.Enabled(ctx, level) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m multiHandler) Handle(ctx context.Context, r slog.Record) error {
+	for _, h := range m {
+		if h.Enabled(ctx, r.Level) {
+			_ = h.Handle(ctx, r.Clone())
+		}
+	}
+	return nil
+}
+
+func (m multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	out := make(multiHandler, len(m))
+	for i, h := range m {
+		out[i] = h.WithAttrs(attrs)
+	}
+	return out
+}
+
+func (m multiHandler) WithGroup(name string) slog.Handler {
+	out := make(multiHandler, len(m))
+	for i, h := range m {
+		out[i] = h.WithGroup(name)
+	}
+	return out
+}
 
 func main() {
 	logLevel := flag.String("log-level", "info", "Log level: debug, info, warn, error")
+	logFile  := flag.String("log-file", "", "Optional path to write JSON logs to (in addition to stderr text output).")
 	proxyAddr := flag.String("proxy-addr", "0.0.0.0:8080", "Address for the cache proxy listener")
 	metricsAddr := flag.String("metrics-addr", "0.0.0.0:9090", "Address for the Prometheus metrics endpoint")
 	statsInterval := flag.Duration("stats", 0, "Print a metrics summary on this interval (e.g. 10s). 0 disables.")
 	maxCacheBytes := flag.Int64("max-cache-bytes", 256<<20, "Total byte budget for the in-memory cache (0 = unlimited).")
 	maxBodyBytes := flag.Int64("max-body-bytes", 1<<20, "Maximum response body size to cache per request (0 = unlimited).")
+	tlsCADir    := flag.String("tls-ca-dir", "", "Directory containing tls.crt and tls.key for TLS MITM. Empty disables TLS interception.")
+	ifacePattern := flag.String("iface-pattern", iface.DefaultIfacePattern, "Regexp matching host-side veth names to attach TC BPF to. Use 'lxc[0-9a-f]{8,}' for Cilium-only to avoid intercepting Docker container traffic.")
 	flag.Parse()
 
 	level := parseLogLevel(*logLevel)
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+	opts := &slog.HandlerOptions{Level: level}
+	handlers := multiHandler{slog.NewTextHandler(os.Stderr, opts)}
+	if *logFile != "" {
+		f, err := os.OpenFile(*logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			slog.Error("open log file", "path", *logFile, "err", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+		handlers = append(handlers, slog.NewJSONHandler(f, opts))
+		slog.Info("logging to file", "path", *logFile, "format", "json")
+	}
+	slog.SetDefault(slog.New(handlers))
+	slog.Info("starting kcache", "version", version.Version)
 
 	if err := rlimit.RemoveMemlock(); err != nil {
 		slog.Error("remove memlock", "err", err)
@@ -90,7 +144,7 @@ func main() {
 	slog.Info("BPF proxy target configured", "ip", redirectIP.String(), "port", redirectPort)
 
 	// Attach TC BPF programs to all existing pod veths and watch for new or disconnected ones.
-	mgr := iface.New(objs.TcIngress, objs.TcEgress)
+	mgr := iface.New(objs.TcIngress, objs.TcEgress, *ifacePattern)
 	if err := mgr.AttachExisting(); err != nil {
 		slog.Error("attach TC to existing veths", "err", err)
 		os.Exit(1)
@@ -131,6 +185,19 @@ func main() {
 		return origdst.Lookup(objs.OrigDst, peer)
 	}
 
+	var ca *tlsmitm.CA
+	if *tlsCADir != "" {
+		var caErr error
+		ca, caErr = tlsmitm.LoadCA(*tlsCADir)
+		if caErr != nil {
+			slog.Warn("TLS MITM disabled: failed to load CA", "dir", *tlsCADir, "err", caErr)
+		} else {
+			slog.Info("TLS MITM enabled", "ca-dir", *tlsCADir)
+		}
+	} else {
+		slog.Info("TLS MITM disabled: no --tls-ca-dir configured")
+	}
+
 	// Try to connect to the k8s API for CachePolicy support.
 	// Declare p before the watcher so the onChange closure captures
 	// the variable, not a value — p will be assigned before the watcher
@@ -143,9 +210,9 @@ func main() {
 	})
 	if err != nil {
 		slog.Warn("k8s watcher unavailable, running without CachePolicy support", "err", err)
-		p = proxy.New(c, policy.New(nil), origDstFn, nil, *maxBodyBytes)
+		p = proxy.New(c, policy.New(nil), origDstFn, nil, *maxBodyBytes, ca)
 	} else {
-		p = proxy.New(c, policy.New(nil), origDstFn, watcher.NamespaceLookup, *maxBodyBytes)
+		p = proxy.New(c, policy.New(nil), origDstFn, watcher.NamespaceLookup, *maxBodyBytes, ca)
 		go watcher.Run(ctx)
 	}
 

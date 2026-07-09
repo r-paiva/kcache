@@ -41,11 +41,32 @@ spec:
             - -log-level={{ .Values.kcache.logLevel }}
             - -max-cache-bytes={{ .Values.kcache.maxCacheBytes | int64 }}
             - -max-body-bytes={{ .Values.kcache.maxBodyBytes | int64 }}
+            {{- if .Values.kcache.tls.caSecretName }}
+            - -tls-ca-dir=/etc/kcache/tls
+            {{- end }}
+            {{- if .Values.kcache.ifacePattern }}
+            - -iface-pattern={{ .Values.kcache.ifacePattern }}
+            {{- end }}
+            {{- if .Values.kcache.logFile }}
+            - -log-file=/var/log/kcache/{{ .Values.kcache.logFile }}
+            {{- end }}
           env:
             - name: NODE_IP
               valueFrom:
                 fieldRef:
                   fieldPath: status.hostIP
+          {{- if or .Values.kcache.tls.caSecretName .Values.kcache.logFile }}
+          volumeMounts:
+            {{- if .Values.kcache.tls.caSecretName }}
+            - name: tls-ca
+              mountPath: /etc/kcache/tls
+              readOnly: true
+            {{- end }}
+            {{- if .Values.kcache.logFile }}
+            - name: log-dir
+              mountPath: /var/log/kcache
+            {{- end }}
+          {{- end }}
           ports:
             - name: metrics
               containerPort: {{ .Values.kcache.metrics.port }}
@@ -66,4 +87,18 @@ spec:
             privileged: true
           resources:
             {{- toYaml .Values.kcache.resources | nindent 12 }}
+      {{- if or .Values.kcache.tls.caSecretName .Values.kcache.logFile }}
+      volumes:
+        {{- if .Values.kcache.tls.caSecretName }}
+        - name: tls-ca
+          secret:
+            secretName: {{ .Values.kcache.tls.caSecretName }}
+        {{- end }}
+        {{- if .Values.kcache.logFile }}
+        - name: log-dir
+          hostPath:
+            path: /var/log/kcache
+            type: DirectoryOrCreate
+        {{- end }}
+      {{- end }}
 {{- end }}

@@ -21,6 +21,8 @@ spec:
         {{- include "kcache-demo.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: curl-client
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: paiva-desktop
       containers:
         - name: curl
           image: "{{ .Values.curlClients.image.repository }}:{{ .Values.curlClients.image.tag }}"
@@ -28,3 +30,16 @@ spec:
           command: ["sh", "-c", "sleep infinity"]
           resources:
             {{- toYaml .Values.curlClients.resources | nindent 12 }}
+          {{- if .Values.kcache.tls.caSecretName }}
+          volumeMounts:
+            - name: ca-cert
+              mountPath: /etc/ssl/kcache-ca.crt
+              subPath: tls.crt
+              readOnly: true
+          {{- end }}
+      {{- if .Values.kcache.tls.caSecretName }}
+      volumes:
+        - name: ca-cert
+          secret:
+            secretName: {{ .Values.kcache.tls.caSecretName }}
+      {{- end }}

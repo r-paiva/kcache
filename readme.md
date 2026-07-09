@@ -20,6 +20,16 @@ kcache runs as a DaemonSet. On each node it:
 
 Cache behaviour is controlled by `CachePolicy` CRDs — scoped by namespace and pod label selector.
 
+## Docker Hub
+
+```sh
+# Container image (amd64 + arm64)
+docker pull rpaiva0/kcache:dev
+
+# Helm chart
+helm install kcache oci://registry-1.docker.io/rpaiva0/kcache-demo --version 0.1.0
+```
+
 ## Requirements
 
 - Linux kernel 6.6+

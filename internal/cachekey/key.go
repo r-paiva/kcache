@@ -14,6 +14,7 @@ import (
 type Config struct {
 	IncludeBody bool
 	VaryHeaders []string
+	Port        uint16
 }
 
 func Generate(req *http.Request, body []byte, cfg Config) string {
@@ -23,7 +24,7 @@ func Generate(req *http.Request, body []byte, cfg Config) string {
 	if host == "" {
 		host = req.URL.Host
 	}
-	fmt.Fprintf(h, "host=%s\nmethod=%s\npath=%s\n", host, req.Method, req.URL.RequestURI())
+	fmt.Fprintf(h, "host=%s\nmethod=%s\npath=%s\nport=%d\n", host, req.Method, req.URL.RequestURI(), cfg.Port)
 
 	if cfg.IncludeBody && len(body) > 0 {
 		h.Write(body)

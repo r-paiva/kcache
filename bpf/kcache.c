@@ -15,7 +15,8 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
 
-#define INTERCEPT_PORT 80
+#define INTERCEPT_PORT     80
+#define INTERCEPT_PORT_TLS 443
 #define ETH_HLEN       14
 
 struct conn_key {
@@ -84,7 +85,8 @@ int tc_ingress(struct __sk_buff *skb)
 	struct tcphdr *tcph = (void *)iph + ihl;
 	if ((void *)(tcph + 1) > data_end)
 		return TC_ACT_OK;
-	if (bpf_ntohs(tcph->dest) != INTERCEPT_PORT)
+	__u16 dst_port = bpf_ntohs(tcph->dest);
+	if (dst_port != INTERCEPT_PORT && dst_port != INTERCEPT_PORT_TLS)
 		return TC_ACT_OK;
 
 	__u32 tgt_key = 0;

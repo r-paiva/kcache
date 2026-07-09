@@ -5,6 +5,7 @@
 package policy
 
 import (
+	"log/slog"
 	"net"
 	"strings"
 	"time"
@@ -71,9 +72,31 @@ func (p *Policy) Match(namespace string, podLabels map[string]string, host strin
 		if len(r.Paths) > 0 && !pathAllowed(r.Paths, path) {
 			continue
 		}
+		slog.Debug("policy match", "host", host, "port", port, "method", method, "path", path,
+			"rule_host", r.Host, "ttl", r.TTL, "namespace", r.Namespace)
 		return r
 	}
 	return nil
+}
+
+// HasRuleForHostPort reports whether any rule targets host on port, ignoring
+// method, path, namespace and pod selector. Used as a pre-MITM gate before
+// the HTTP request headers are available.
+func (p *Policy) HasRuleForHostPort(host string, port uint16) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	for i := range p.rules {
+		r := &p.rules[i]
+		if r.Port != 0 && r.Port != port {
+			continue
+		}
+		if r.Host != "*" && r.Host != host {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func methodAllowed(allowed []string, method string) bool {

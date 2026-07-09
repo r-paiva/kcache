@@ -14,3 +14,9 @@ spec:
       port: 80
       methods: [GET]
       ttl: 60s
+    {{- if .Values.kcache.tls.caSecretName }}
+    - host: "*"
+      port: 443
+      methods: [GET]
+      ttl: 60s
+    {{- end }}

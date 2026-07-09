@@ -20,8 +20,11 @@ RUN go mod download
 
 COPY . .
 
+ARG VERSION=dev
 RUN go generate ./... \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -o kcache .
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath \
+       -ldflags "-X kache/internal/version.Version=${VERSION}" \
+       -o kcache .
 
 
 FROM gcr.io/distroless/static-debian12
