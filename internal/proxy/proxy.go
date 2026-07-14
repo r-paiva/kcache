@@ -246,10 +246,6 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 				origBody.Close()
 				req.Body = nil
 			}
-		} else {
-			body, _ = io.ReadAll(origBody)
-			origBody.Close()
-			req.Body = nil
 		}
 	}
 
@@ -271,7 +267,7 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 
 		if entry, ok := p.cache.Get(key); ok {
 			start := time.Now()
-			writeEntry(w, entry)
+			replyWCachedEntry(w, entry)
 			elapsed := time.Since(start)
 			metrics.HitLatency.WithLabelValues(host, path).Observe(elapsed.Seconds())
 			metrics.Requests.WithLabelValues(host, req.Method, "hit", path).Inc()
@@ -286,14 +282,14 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 			"host", host, "method", req.Method, "path", req.URL.RequestURI(),
 			"upstream", origAddr)
 
-		respEntry, resp := p.fetchUpstream(req, body, origAddr, dial)
+		cachedResp, resp := p.fetchUpstream(req, body, origAddr, dial)
 		if resp == nil {
 			metrics.Requests.WithLabelValues(host, req.Method, "error", path).Inc()
 			writeBadGateway(w)
 			return
 		}
-		if respEntry != nil {
-			varyHdr := respEntry.Header.Get("Vary")
+		if cachedResp != nil {
+			varyHdr := cachedResp.Header.Get("Vary")
 			if varyHdr == "*" {
 				metrics.Requests.WithLabelValues(host, req.Method, "bypass", path).Inc()
 				resp.Write(w)     //nolint:errcheck
@@ -307,18 +303,19 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 			if storeKey != key {
 				p.cache.Delete(key)
 			}
-			respEntry.TTL = rule.TTL
-			p.cache.Set(storeKey, respEntry)
-			metrics.ResponseSize.WithLabelValues(host, req.Method, path).Observe(float64(len(respEntry.Body)))
+			cachedResp.TTL = rule.TTL
+			p.cache.Set(storeKey, cachedResp)
+			metrics.ResponseSize.WithLabelValues(host, req.Method, path).Observe(float64(len(cachedResp.Body)))
 			metrics.Requests.WithLabelValues(host, req.Method, "miss", path).Inc()
 			resp.Header.Set("X-Cache", "MISS")
 			slog.Debug("stored in cache",
 				"host", host, "method", req.Method, "path", req.URL.RequestURI(),
-				"status", resp.StatusCode, "size", len(respEntry.Body), "ttl", rule.TTL)
+				"status", resp.StatusCode, "size", len(cachedResp.Body), "ttl", rule.TTL)
 		} else {
 			metrics.Requests.WithLabelValues(host, req.Method, "bypass", path).Inc()
-			slog.Debug("upstream non-2xx, not cached",
-				"host", host, "method", req.Method, "status", resp.StatusCode)
+			slog.Debug("not cached",
+				"host", host, "method", req.Method, "status", resp.StatusCode,
+				"reason", reasonNotCached(resp.StatusCode, p.maxBodyBytes))
 		}
 		resp.Write(w)     //nolint:errcheck
 		resp.Body.Close() //nolint:errcheck
@@ -339,6 +336,7 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 }
 
 func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string, dial func(string) (net.Conn, error)) (*cache.Entry, *http.Response) {
+	// TODO: fetchUpstream should only return the resp, not a caching object
 	host := req.Host
 	start := time.Now()
 
@@ -377,64 +375,57 @@ func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string, dial 
 	slog.Debug("upstream response", "host", host, "method", req.Method, "path", urlPath,
 		"status", resp.StatusCode, "latency", elapsed)
 
-	if p.maxBodyBytes > 0 {
-		lr := &io.LimitedReader{R: resp.Body, N: p.maxBodyBytes + 1}
-		partial, readErr := io.ReadAll(lr)
-		if readErr != nil {
-			resp.Body.Close()
-			upstream.Close()
-			slog.Error("read upstream body", "err", readErr)
-			return nil, nil
-		}
-		if lr.N == 0 {
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				metrics.CacheSkipsBodyTooLarge.WithLabelValues(host).Inc()
-				slog.Debug("response too large to cache",
-					"host", host, "limit", p.maxBodyBytes)
-			}
-			resp.Body = &streamingBody{
-				Reader: io.MultiReader(bytes.NewReader(partial), resp.Body),
-				closer: upstream,
-			}
-			return nil, resp
-		}
+	if p.maxBodyBytes == 0 {
+		resp.Body = &streamingBody{Reader: resp.Body, closer: upstream}
+		return nil, resp
+	}
 
+	lr := &io.LimitedReader{R: resp.Body, N: p.maxBodyBytes + 1}
+	partial, readErr := io.ReadAll(lr)
+	if readErr != nil {
 		resp.Body.Close()
 		upstream.Close()
-		resp.Body = io.NopCloser(bytes.NewReader(partial))
+		slog.Error("read upstream body", "err", readErr)
+		return nil, nil
+	}
+	if lr.N == 0 {
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			return &cache.Entry{
-				StatusCode: resp.StatusCode,
-				Header:     resp.Header.Clone(),
-				Body:       partial,
-				CachedAt:   time.Now(),
-			}, resp
+			metrics.CacheSkipsBodyTooLarge.WithLabelValues(host).Inc()
+			slog.Debug("response too large to cache",
+				"host", host, "limit", p.maxBodyBytes)
+		}
+		resp.Body = &streamingBody{
+			Reader: io.MultiReader(bytes.NewReader(partial), resp.Body),
+			closer: upstream,
 		}
 		return nil, resp
 	}
 
-	respBody, readErr := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	upstream.Close()
-	if readErr != nil {
-		slog.Error("read upstream body", "err", readErr)
-		return nil, nil
-	}
-	resp.Body = io.NopCloser(bytes.NewReader(respBody))
+	resp.Body = io.NopCloser(bytes.NewReader(partial))
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return &cache.Entry{
-			StatusCode: resp.StatusCode,
-			Header:     resp.Header.Clone(),
-			Body:       respBody,
-			CachedAt:   time.Now(),
-		}, resp
+		return p.cacheEntryFromUpstreamResponse(resp, partial), resp
 	}
+
 	return nil, resp
 }
 
 type streamingBody struct {
 	io.Reader
 	closer io.Closer
+}
+
+func (p *Proxy) cacheEntryFromUpstreamResponse(resp *http.Response, respBody []byte) *cache.Entry {
+	return &cache.Entry{
+		StatusCode: resp.StatusCode,
+		Header:     resp.Header.Clone(),
+		Proto:      resp.Proto,
+		ProtoMajor: resp.ProtoMajor,
+		ProtoMinor: resp.ProtoMinor,
+		Body:       respBody,
+		CachedAt:   time.Now(),
+	}
 }
 
 func (s *streamingBody) Close() error { return s.closer.Close() }
@@ -485,18 +476,28 @@ func mergeVaryHeaders(a, b []string) []string {
 	return merged
 }
 
-func writeEntry(w io.Writer, e *cache.Entry) {
+func replyWCachedEntry(w io.Writer, e *cache.Entry) {
 	resp := &http.Response{
 		StatusCode:    e.StatusCode,
-		Proto:         "HTTP/1.1",
-		ProtoMajor:    1,
-		ProtoMinor:    1,
+		Proto:         e.Proto,
+		ProtoMajor:    e.ProtoMajor,
+		ProtoMinor:    e.ProtoMinor,
 		Header:        e.Header.Clone(),
 		Body:          io.NopCloser(bytes.NewReader(e.Body)),
 		ContentLength: int64(len(e.Body)),
 	}
 	resp.Header.Set("X-Cache", "HIT")
 	resp.Write(w)
+}
+
+func reasonNotCached(status int, maxBodyBytes int64) string {
+	if maxBodyBytes == 0 {
+		return "body caching disabled"
+	}
+	if status < 200 || status >= 300 {
+		return "non-2xx status"
+	}
+	return "body too large"
 }
 
 func writeBadGateway(w io.Writer) {

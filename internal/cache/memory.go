@@ -13,7 +13,7 @@ import (
 type store struct {
 	mu         sync.RWMutex
 	entries    map[string]*Entry
-	maxBytes   int64 // 0 means unlimited
+	maxBytes   int64
 	count      atomic.Int64
 	totalBytes atomic.Int64
 	onEvicted  func(n int)
@@ -51,11 +51,9 @@ func (s *store) Set(key string, e *Entry) {
 
 	s.removeLocked(key)
 
-	if s.maxBytes > 0 {
-		for s.totalBytes.Load()+newSize > s.maxBytes {
-			if !s.evictOneLocked(true) && !s.evictOneLocked(false) {
-				return
-			}
+	for s.totalBytes.Load()+newSize > s.maxBytes {
+		if !s.evictOneLocked(true) && !s.evictOneLocked(false) {
+			return
 		}
 	}
 

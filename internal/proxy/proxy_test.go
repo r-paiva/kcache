@@ -34,7 +34,7 @@ func startProxy(t *testing.T, c cache.Cache, pol *policy.Policy, upstream *httpt
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := proxy.New(c, pol, mockOrigDst(upstream.Listener.Addr()), nil, 0, nil)
+	p := proxy.New(c, pol, mockOrigDst(upstream.Listener.Addr()), nil, 1<<20, nil)
 	go p.Serve(ln) //nolint:errcheck
 	t.Cleanup(func() { ln.Close() })
 	return ln.Addr().String()
@@ -75,7 +75,7 @@ func TestCacheMissThenHit(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	resp1 := doRequest(t, proxyAddr, "GET", "/api/data", "example.com")
@@ -110,7 +110,7 @@ func TestDifferentPathsDifferentCacheEntries(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	doRequest(t, proxyAddr, "GET", "/a", "example.com")
@@ -131,7 +131,7 @@ func TestNon2xxResponseNotCached(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	doRequest(t, proxyAddr, "GET", "/missing", "example.com")
@@ -153,7 +153,7 @@ func TestBodyTooLargeNotCached(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -189,7 +189,7 @@ func TestNoPolicyMatchForwardsTransparently(t *testing.T) {
 
 	// Policy matches a different port — upstream port won't match.
 	pol := policy.New([]policy.Rule{{Host: "*", Port: 9999, TTL: time.Minute}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	doRequest(t, proxyAddr, "GET", "/", "example.com")
@@ -311,7 +311,7 @@ func TestKeepAlive(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	conn, err := net.Dial("tcp", proxyAddr)
@@ -364,7 +364,7 @@ func TestTTLExpiry(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: 50 * time.Millisecond}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	doRequest(t, proxyAddr, "GET", "/ttl", "example.com") // miss — cached for 50 ms
@@ -386,7 +386,7 @@ func TestUpstreamUnreachable(t *testing.T) {
 	ln.Close()
 
 	pol := policy.New([]policy.Rule{{Host: "*", Port: uint16(deadAddr.Port), TTL: time.Minute}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 
 	proxyLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -414,7 +414,7 @@ func TestRequestBodyTooLargeForwarded(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute, CacheBody: true}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -454,7 +454,7 @@ func TestPOSTBodyInCacheKey(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute, CacheBody: true}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	// Two POSTs with the same body — second should hit cache.
@@ -487,7 +487,7 @@ func TestOversizedResponseBodyDelivered(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -515,7 +515,7 @@ func TestUpstreamVaryAutoPartition(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	doGetWithHeader(t, proxyAddr, "/data", "example.com", "Accept-Encoding", "gzip")
@@ -540,7 +540,7 @@ func TestVaryStarSkipCache(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	doRequest(t, proxyAddr, "GET", "/dynamic", "example.com")
@@ -568,7 +568,7 @@ func TestVaryHeadersPartitionCache(t *testing.T) {
 		TTL:         time.Minute,
 		VaryHeaders: []string{"Authorization"},
 	}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	doGetWithHeader(t, proxyAddr, "/api", "example.com", "Authorization", "Bearer a")
@@ -597,7 +597,7 @@ func TestVaryBodyCorrectnessPerVariant(t *testing.T) {
 
 	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
 	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	_, body1 := doGetWithHeaderReadBody(t, proxyAddr, "/data", "example.com", "Accept-Encoding", "gzip")
@@ -636,7 +636,7 @@ func TestPolicyAndUpstreamVaryMerge(t *testing.T) {
 		TTL:         time.Minute,
 		VaryHeaders: []string{"Authorization"},
 	}})
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	proxyAddr := startProxy(t, c, pol, upstream)
 
 	// Three distinct combinations of the two vary dimensions.
