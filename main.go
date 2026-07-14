@@ -72,13 +72,13 @@ func (m multiHandler) WithGroup(name string) slog.Handler {
 
 func main() {
 	logLevel := flag.String("log-level", "info", "Log level: debug, info, warn, error")
-	logFile  := flag.String("log-file", "", "Optional path to write JSON logs to (in addition to stderr text output).")
+	logFile := flag.String("log-file", "", "Optional path to write JSON logs to (in addition to stderr text output).")
 	proxyAddr := flag.String("proxy-addr", "0.0.0.0:8080", "Address for the cache proxy listener")
 	metricsAddr := flag.String("metrics-addr", "0.0.0.0:9090", "Address for the Prometheus metrics endpoint")
 	statsInterval := flag.Duration("stats", 0, "Print a metrics summary on this interval (e.g. 10s). 0 disables.")
-	maxCacheBytes := flag.Int64("max-cache-bytes", 256<<20, "Total byte budget for the in-memory cache (0 = unlimited).")
-	maxBodyBytes := flag.Int64("max-body-bytes", 1<<20, "Maximum response body size to cache per request (0 = unlimited).")
-	tlsCADir    := flag.String("tls-ca-dir", "", "Directory containing tls.crt and tls.key for TLS MITM. Empty disables TLS interception.")
+	maxCacheBytes := flag.Int64("max-cache-bytes", 256<<20, "Total byte budget for the in-memory cache.")
+	maxBodyBytes := flag.Int64("max-body-bytes", 1<<20, "Maximum response body size to cache per request.")
+	tlsCADir := flag.String("tls-ca-dir", "", "Directory containing tls.crt and tls.key for TLS MITM. Empty disables TLS interception.")
 	ifacePattern := flag.String("iface-pattern", iface.DefaultIfacePattern, "Regexp matching host-side veth names to attach TC BPF to. Use 'lxc[0-9a-f]{8,}' for Cilium-only to avoid intercepting Docker container traffic.")
 	flag.Parse()
 

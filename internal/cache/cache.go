@@ -12,6 +12,9 @@ import (
 type Entry struct {
 	StatusCode int
 	Header     http.Header
+	Proto      string
+	ProtoMajor int
+	ProtoMinor int
 	Body       []byte
 	CachedAt   time.Time
 	TTL        time.Duration

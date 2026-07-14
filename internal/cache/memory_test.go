@@ -40,7 +40,7 @@ func TestGetMiss(t *testing.T) {
 }
 
 func TestSetAndGet(t *testing.T) {
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	c.Set("k", entry("hello", time.Minute))
 	e, ok := c.Get("k")
 	if !ok {
@@ -71,7 +71,7 @@ func TestDelete(t *testing.T) {
 }
 
 func TestSizeBytes(t *testing.T) {
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	c.Set("a", entry("hello", time.Minute))  // 5 bytes body, no headers
 	c.Set("b", entry("world!", time.Minute)) // 6 bytes body, no headers
 	if got := c.SizeBytes(); got != 11 {
@@ -80,7 +80,7 @@ func TestSizeBytes(t *testing.T) {
 }
 
 func TestSizeBytes_IncludesHeaders(t *testing.T) {
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	// body: "hi" = 2 bytes
 	// header key:   "Content-Type" = 12 bytes
 	// header value: "text/plain"   = 10 bytes
@@ -93,7 +93,7 @@ func TestSizeBytes_IncludesHeaders(t *testing.T) {
 }
 
 func TestOverwriteUpdatesSize(t *testing.T) {
-	c := cache.New(0, nil)
+	c := cache.New(256<<20, nil)
 	c.Set("k", entry("hi", time.Minute))    // 2 bytes
 	c.Set("k", entry("hello", time.Minute)) // 5 bytes
 	if got := c.SizeBytes(); got != 5 {
