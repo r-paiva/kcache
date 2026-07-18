@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the k-cache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
