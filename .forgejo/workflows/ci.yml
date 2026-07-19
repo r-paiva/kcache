@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-on:
+"on":
     workflow_dispatch:
 
 jobs:
