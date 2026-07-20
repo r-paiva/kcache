@@ -10,7 +10,7 @@
 
 jobs:
     test:
-        runs-on: codeberg-tiny-lazy
+        runs-on: self-hosted
         steps:
             - uses: actions/checkout@v4
             - uses: actions/setup-go@v5
@@ -21,7 +21,7 @@ jobs:
             - run: go test -race ./...
 
     reuse:
-        runs-on: codeberg-tiny-lazy
+        runs-on: self-hosted
         steps:
             - uses: actions/checkout@v4
             - uses: fsfe/reuse-action@v5
