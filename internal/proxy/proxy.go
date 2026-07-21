@@ -27,6 +27,14 @@ import (
 	"kache/internal/tlsmitm"
 )
 
+const (
+	ccNoStore = "no-store"
+	ccNoCache = "no-cache"
+	ccPrivate = "private"
+	ccMaxAge  = "max-age"
+	ccSMaxAge = "s-maxage"
+)
+
 type OrigDstFunc func(conn net.Conn) (ip net.IP, port uint16, err error)
 
 type NamespaceFunc func(podIP string) (namespace string, podLabels map[string]string)
@@ -259,23 +267,29 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 	rule := pol.Match(namespace, podLabels, host, origPort, req.Method, path)
 
 	if rule != nil && !reqBodyTooLarge {
+		reqCC := parseCacheControl(req.Header.Get("Cache-Control"))
+		_, reqNoStore := reqCC[ccNoStore]
+		_, reqNoCache := reqCC[ccNoCache]
+
 		baseKey := cachekey.Generate(req, nil, cachekey.Config{Port: origPort})
 		keyCfg := rule.KeyConfig()
 		keyCfg.Port = origPort
 		keyCfg.VaryHeaders = mergeVaryHeaders(keyCfg.VaryHeaders, p.lookupVaryIndex(baseKey))
 		key := cachekey.Generate(req, body, keyCfg)
 
-		if entry, ok := p.cache.Get(key); ok {
-			start := time.Now()
-			replyWCachedEntry(w, entry)
-			elapsed := time.Since(start)
-			metrics.HitLatency.WithLabelValues(host, path).Observe(elapsed.Seconds())
-			metrics.Requests.WithLabelValues(host, req.Method, "hit", path).Inc()
-			metrics.ResponseSize.WithLabelValues(host, req.Method, path).Observe(float64(len(entry.Body)))
-			slog.Debug("cache hit",
-				"host", host, "method", req.Method, "path", req.URL.RequestURI(),
-				"size", len(entry.Body), "latency", elapsed)
-			return
+		if !reqNoStore && !reqNoCache {
+			if entry, ok := p.cache.Get(key); ok {
+				start := time.Now()
+				replyWCachedEntry(w, entry)
+				elapsed := time.Since(start)
+				metrics.HitLatency.WithLabelValues(host, path).Observe(elapsed.Seconds())
+				metrics.Requests.WithLabelValues(host, req.Method, "hit", path).Inc()
+				metrics.ResponseSize.WithLabelValues(host, req.Method, path).Observe(float64(len(entry.Body)))
+				slog.Debug("cache hit",
+					"host", host, "method", req.Method, "path", req.URL.RequestURI(),
+					"size", len(entry.Body), "latency", elapsed)
+				return
+			}
 		}
 
 		slog.Debug("cache miss",
@@ -289,8 +303,9 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 			return
 		}
 		if cachedResp != nil {
+			respCC := parseCacheControl(cachedResp.Header.Get("Cache-Control"))
 			varyHdr := cachedResp.Header.Get("Vary")
-			if varyHdr == "*" {
+			if varyHdr == "*" || reqNoStore || !responseCacheable(respCC) {
 				metrics.Requests.WithLabelValues(host, req.Method, "bypass", path).Inc()
 				resp.Write(w)     //nolint:errcheck
 				resp.Body.Close() //nolint:errcheck
@@ -303,7 +318,7 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 			if storeKey != key {
 				p.cache.Delete(key)
 			}
-			cachedResp.TTL = rule.TTL
+			cachedResp.TTL = cacheControlTTL(respCC, rule.TTL)
 			p.cache.Set(storeKey, cachedResp)
 			metrics.ResponseSize.WithLabelValues(host, req.Method, path).Observe(float64(len(cachedResp.Body)))
 			metrics.Requests.WithLabelValues(host, req.Method, "miss", path).Inc()
@@ -488,6 +503,45 @@ func replyWCachedEntry(w io.Writer, e *cache.Entry) {
 	}
 	resp.Header.Set("X-Cache", "HIT")
 	resp.Write(w)
+}
+
+func parseCacheControl(header string) map[string]string {
+	if header == "" {
+		return nil
+	}
+	directives := make(map[string]string)
+	for _, part := range strings.Split(header, ",") {
+		name, value, _ := strings.Cut(strings.TrimSpace(part), "=")
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		directives[name] = strings.Trim(strings.TrimSpace(value), `"`)
+	}
+	return directives
+}
+
+func responseCacheable(cacheControl map[string]string) bool {
+	if _, ok := cacheControl[ccNoStore]; ok {
+		return false
+	}
+	if _, ok := cacheControl[ccPrivate]; ok {
+		return false
+	}
+	return true
+}
+
+// cacheControlTTL derives a TTL from the response Cache-Control directives,
+// preferring s-maxage over max-age, and falling back to the policy TTL.
+func cacheControlTTL(cc map[string]string, fallback time.Duration) time.Duration {
+	for _, key := range []string{ccSMaxAge, ccMaxAge} {
+		if v, ok := cc[key]; ok {
+			if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
+				return time.Duration(secs) * time.Second
+			}
+		}
+	}
+	return fallback
 }
 
 func reasonNotCached(status int, maxBodyBytes int64) string {
