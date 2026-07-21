@@ -4,11 +4,15 @@ SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# k-cache
+# kcache
 
 > **Early alpha.** Expect breaking changes.
 
 A transparent, node-level HTTP/HTTPS cache for Kubernetes. Traffic is intercepted at the TC BPF layer on each node — pods make normal requests and responses are served from cache without any sidecar or code change.
+
+This repository holds the kcache source (Go + BPF). Related repos:
+
+- **[kcache-charts](https://codeberg.org/rpaiva/kcache-charts)** — the official Helm chart and `CachePolicy` examples.
 
 ## How it works
 
@@ -27,8 +31,8 @@ Cache behaviour is controlled by `CachePolicy` CRDs — scoped by namespace and 
 # Container image (amd64 + arm64)
 docker pull rpaiva0/kcache:dev
 
-# Helm chart
-helm install kcache oci://registry-1.docker.io/rpaiva0/kcache-demo --version 0.2.5
+# Helm chart — packaged in the kcache-deploy repo
+helm install kcache oci://registry-1.docker.io/rpaiva0/kcache
 ```
 
 ## Requirements
@@ -65,15 +69,11 @@ A pod with no matching policy is unaffected — traffic passes through transpare
 
 To enable HTTPS caching, kcache needs a CA certificate to sign per-SNI leaf certs on demand. Pods must trust this CA so they accept the MITM cert.
 
-```sh
-# Generate CA and store as a Kubernetes Secret
-make gen-ca
+1. Create a Kubernetes Secret holding the CA `tls.crt` / `tls.key`.
+2. Set `kcache.tls.caSecretName` in your Helm values to that Secret's name.
+3. Mount the CA cert into your workloads (or add it to their trust store) so they accept the MITM leaf certs.
 
-# Sign the backend's TLS cert with the kcache CA (if using an in-cluster HTTPS backend)
-make gen-backend-tls
-```
-
-Then set `kcache.tls.caSecretName` in your Helm values to the name of the CA secret. See `charts/kcache-demo/values.yaml` for the full TLS configuration reference.
+See the `kcache` chart's `values.yaml` in **kcache-deploy** for the full TLS configuration reference. The **kcache-homelab** repo has `make gen-ca` / `make gen-backend-tls` helpers that generate a CA and a CA-signed backend cert for local testing.
 
 ## Flags
 
@@ -113,6 +113,4 @@ make run
 # Run tests
 make test
 
-# Multi-arch image push to Docker Hub
-make image-push
 ```
