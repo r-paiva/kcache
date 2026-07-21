@@ -677,3 +677,147 @@ func TestPolicyAndUpstreamVaryMerge(t *testing.T) {
 		t.Fatalf("fourth request should not have reached upstream; calls: %d", calls)
 	}
 }
+
+func TestResponseNoStoreNotCached(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
+	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
+	c := cache.New(256<<20, nil)
+	proxyAddr := startProxy(t, c, pol, upstream)
+
+	doRequest(t, proxyAddr, "GET", "/x", "example.com")
+	doRequest(t, proxyAddr, "GET", "/x", "example.com")
+
+	if calls != 2 {
+		t.Fatalf("Cache-Control: no-store response must not be cached; expected 2 calls, got %d", calls)
+	}
+}
+
+func TestResponsePrivateNotCached(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Cache-Control", "private, max-age=60")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
+	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
+	c := cache.New(256<<20, nil)
+	proxyAddr := startProxy(t, c, pol, upstream)
+
+	doRequest(t, proxyAddr, "GET", "/x", "example.com")
+	doRequest(t, proxyAddr, "GET", "/x", "example.com")
+
+	if calls != 2 {
+		t.Fatalf("Cache-Control: private response must not be cached; expected 2 calls, got %d", calls)
+	}
+}
+
+func TestResponseMaxAgeOverridesPolicyTTL(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Cache-Control", "max-age=0")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
+	// Long policy TTL, but the response caps freshness at 0s, so the second
+	// request must re-fetch rather than hit the cache.
+	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Hour}})
+	c := cache.New(256<<20, nil)
+	proxyAddr := startProxy(t, c, pol, upstream)
+
+	doRequest(t, proxyAddr, "GET", "/x", "example.com")
+	time.Sleep(20 * time.Millisecond)
+	doRequest(t, proxyAddr, "GET", "/x", "example.com")
+
+	if calls != 2 {
+		t.Fatalf("max-age=0 must override policy TTL; expected 2 calls, got %d", calls)
+	}
+}
+
+func TestResponseSMaxAgePreferredOverMaxAge(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		// max-age would keep it fresh, but s-maxage=0 takes precedence.
+		w.Header().Set("Cache-Control", "max-age=3600, s-maxage=0")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
+	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Hour}})
+	c := cache.New(256<<20, nil)
+	proxyAddr := startProxy(t, c, pol, upstream)
+
+	doRequest(t, proxyAddr, "GET", "/x", "example.com")
+	time.Sleep(20 * time.Millisecond)
+	doRequest(t, proxyAddr, "GET", "/x", "example.com")
+
+	if calls != 2 {
+		t.Fatalf("s-maxage=0 must take precedence over max-age; expected 2 calls, got %d", calls)
+	}
+}
+
+func TestRequestNoCacheBypassesLookup(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
+	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
+	c := cache.New(256<<20, nil)
+	proxyAddr := startProxy(t, c, pol, upstream)
+
+	doRequest(t, proxyAddr, "GET", "/x", "example.com")                                     // populates cache
+	resp := doGetWithHeader(t, proxyAddr, "/x", "example.com", "Cache-Control", "no-cache") // must skip the hit
+	if resp.Header.Get("X-Cache") == "HIT" {
+		t.Fatal("Cache-Control: no-cache request must not be served from cache")
+	}
+	if calls != 2 {
+		t.Fatalf("no-cache must force revalidation; expected 2 calls, got %d", calls)
+	}
+
+	// The no-cache response is still storable, so a plain request now hits.
+	if r := doRequest(t, proxyAddr, "GET", "/x", "example.com"); r.Header.Get("X-Cache") != "HIT" {
+		t.Fatalf("subsequent plain request should hit; calls: %d", calls)
+	}
+}
+
+func TestRequestNoStoreBypassesAndDoesNotStore(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	upstreamPort := uint16(upstream.Listener.Addr().(*net.TCPAddr).Port)
+	pol := policy.New([]policy.Rule{{Host: "*", Port: upstreamPort, TTL: time.Minute}})
+	c := cache.New(256<<20, nil)
+	proxyAddr := startProxy(t, c, pol, upstream)
+
+	doGetWithHeader(t, proxyAddr, "/x", "example.com", "Cache-Control", "no-store")
+	// Nothing should have been stored, so a follow-up plain request misses too.
+	if r := doRequest(t, proxyAddr, "GET", "/x", "example.com"); r.Header.Get("X-Cache") == "HIT" {
+		t.Fatal("no-store request response must not be stored")
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 upstream calls, got %d", calls)
+	}
+}
