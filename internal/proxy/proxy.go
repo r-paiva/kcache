@@ -105,7 +105,7 @@ type peekConn struct {
 func (c *peekConn) Read(b []byte) (int, error) { return c.r.Read(b) }
 
 func (p *Proxy) handleConn(conn net.Conn) {
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	origIP, origPort, err := p.origDst(conn)
 	if err != nil {
@@ -181,7 +181,7 @@ func (p *Proxy) handleTLSConn(conn net.Conn, br *bufio.Reader, origAddr string, 
 	}
 	_ = tlsConn.SetDeadline(time.Time{})
 	slog.Debug("TLS MITM: handshake ok", "sni", sni)
-	defer tlsConn.Close()
+	defer tlsConn.Close() //nolint:errcheck
 
 	tlsDial := func(addr string) (net.Conn, error) {
 		return tls.DialWithDialer(
@@ -251,7 +251,7 @@ func (p *Proxy) handleRequest(req *http.Request, origAddr string, origPort uint1
 					"host", host, "method", req.Method, "limit", p.maxBodyBytes)
 			} else {
 				body = partial
-				origBody.Close()
+				_ = origBody.Close()
 				req.Body = nil
 			}
 		}
@@ -369,14 +369,14 @@ func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string, dial 
 
 	req.Header.Set("Connection", "close")
 	if err := req.Write(upstream); err != nil {
-		upstream.Close()
+		_ = upstream.Close()
 		slog.Error("write upstream request", "err", err)
 		return nil, nil
 	}
 
 	resp, err := http.ReadResponse(bufio.NewReader(upstream), req)
 	if err != nil {
-		upstream.Close()
+		_ = upstream.Close()
 		slog.Error("read upstream response", "err", err)
 		return nil, nil
 	}
@@ -398,8 +398,8 @@ func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string, dial 
 	lr := &io.LimitedReader{R: resp.Body, N: p.maxBodyBytes + 1}
 	partial, readErr := io.ReadAll(lr)
 	if readErr != nil {
-		resp.Body.Close()
-		upstream.Close()
+		_ = resp.Body.Close()
+		_ = upstream.Close()
 		slog.Error("read upstream body", "err", readErr)
 		return nil, nil
 	}
@@ -416,8 +416,8 @@ func (p *Proxy) fetchUpstream(req *http.Request, body []byte, addr string, dial 
 		return nil, resp
 	}
 
-	resp.Body.Close()
-	upstream.Close()
+	_ = resp.Body.Close()
+	_ = upstream.Close()
 	resp.Body = io.NopCloser(bytes.NewReader(partial))
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return p.cacheEntryFromUpstreamResponse(resp, partial), resp
@@ -502,7 +502,7 @@ func replyWCachedEntry(w io.Writer, e *cache.Entry) {
 		ContentLength: int64(len(e.Body)),
 	}
 	resp.Header.Set("X-Cache", "HIT")
-	resp.Write(w)
+	_ = resp.Write(w)
 }
 
 func parseCacheControl(header string) map[string]string {
@@ -556,6 +556,6 @@ func reasonNotCached(status int, maxBodyBytes int64) string {
 
 func writeBadGateway(w io.Writer) {
 	body := []byte("bad gateway\n")
-	fmt.Fprintf(w, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: %d\r\nContent-Type: text/plain\r\n\r\n%s",
+	_, _ = fmt.Fprintf(w, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: %d\r\nContent-Type: text/plain\r\n\r\n%s",
 		len(body), body)
 }

@@ -4,4 +4,4 @@
 
 package main
 
-//go:generate go tool bpf2go -tags linux kcache ./bpf/kcache.c
+//go:generate go tool bpf2go -cflags "-Wall -Wextra -Werror" -tags linux kcache ./bpf/kcache.c

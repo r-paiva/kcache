@@ -86,11 +86,13 @@ func (w *Watcher) Run(ctx context.Context) {
 	factory := informers.NewSharedInformerFactory(w.client, 5*time.Minute)
 
 	podInformer := factory.Core().V1().Pods().Informer()
-	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj any) { w.onPodAdd(obj) },
 		UpdateFunc: func(_, obj any) { w.onPodAdd(obj) },
 		DeleteFunc: func(obj any) { w.onPodDelete(obj) },
-	})
+	}); err != nil {
+		slog.Error("register pod event handler", "err", err)
+	}
 
 	factory.Start(ctx.Done())
 	factory.WaitForCacheSync(ctx.Done())

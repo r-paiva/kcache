@@ -16,8 +16,8 @@ func Splice(a, b net.Conn) {
 	var once sync.Once
 	closeAll := func() {
 		once.Do(func() {
-			a.Close()
-			b.Close()
+			_ = a.Close()
+			_ = b.Close()
 		})
 	}
 

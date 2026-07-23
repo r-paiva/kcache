@@ -117,7 +117,7 @@ func (m *Manager) detach(ifindex int, name string) {
 		return
 	}
 	for _, l := range ls {
-		l.Close()
+		_ = l.Close()
 	}
 	slog.Info("TC BPF detached", "iface", name)
 }
@@ -178,7 +178,7 @@ func attachTCX(ifindex int, ingress, egress *ebpf.Program) (link.Link, link.Link
 		Anchor:    link.Head(),
 	})
 	if err != nil {
-		ing.Close()
+		_ = ing.Close()
 		return nil, nil, fmt.Errorf("tcx egress: %w", err)
 	}
 

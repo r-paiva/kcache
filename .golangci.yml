@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+#
+# SPDX-License-Identifier: Apache-2.0
+
+version: "2"
+
+linters:
+  exclusions:
+    rules:
+      # Tests don't need to check errors on Close/Write to test servers.
+      - path: _test\.go
+        linters:
+          - errcheck

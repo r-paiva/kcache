@@ -24,7 +24,7 @@ func Generate(req *http.Request, body []byte, cfg Config) string {
 	if host == "" {
 		host = req.URL.Host
 	}
-	fmt.Fprintf(h, "host=%s\nmethod=%s\npath=%s\nport=%d\n", host, req.Method, req.URL.RequestURI(), cfg.Port)
+	_, _ = fmt.Fprintf(h, "host=%s\nmethod=%s\npath=%s\nport=%d\n", host, req.Method, req.URL.RequestURI(), cfg.Port)
 
 	if cfg.IncludeBody && len(body) > 0 {
 		h.Write(body)
@@ -38,7 +38,7 @@ func Generate(req *http.Request, body []byte, cfg Config) string {
 		}
 		sort.Strings(pairs)
 		for _, p := range pairs {
-			fmt.Fprintf(h, "%s\n", p)
+			_, _ = fmt.Fprintf(h, "%s\n", p)
 		}
 	}
 
