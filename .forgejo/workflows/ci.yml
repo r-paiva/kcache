@@ -2,26 +2,32 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# on:
-#     push:
-#         branches: [main]
-#     pull_request:
-#         branches: [main]
+on:
+  push:
+  pull_request:
 
-# jobs:
-#     test:
-#         runs-on: ubuntu-latest
-#         steps:
-#             - uses: actions/checkout@v4
-#             - uses: actions/setup-go@v5
-#               with:
-#                   go-version-file: go.mod
-#                   cache: true
-#             - run: go vet ./internal/...
-#             - run: go test -race ./internal/...
+jobs:
+  # Scoped to ./internal/... on purpose: the root package embeds the bpf2go
+  # object files (kcache_bpfel.o) via go:embed, and those .o files are gitignored.
+  # Building/linting package main would require `go generate` (clang + libbpf +
+  # kernel headers), which is too heavy for the shared runner. The internal
+  # packages have no BPF dependency, so they build and test standalone.
+  test:
+    runs-on: codeberg-tiny-lazy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go vet ./internal/...
+      - run: go test -race ./internal/...
 
-#     reuse:
-#         runs-on: ubuntu-latest
-#         steps:
-#             - uses: actions/checkout@v4
-#             - uses: fsfe/reuse-action@v5
+  reuse:
+    runs-on: codeberg-tiny-lazy
+    steps:
+      - uses: actions/checkout@v4
+      # Install reuse directly rather than fsfe/reuse-action: the action is a
+      # container action and the shared runner has no Docker to run it in.
+      - run: python3 -m pip install --user --break-system-packages reuse
+      - run: ~/.local/bin/reuse lint
