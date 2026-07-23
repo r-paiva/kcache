@@ -5,7 +5,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"flag"
@@ -17,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/prometheus/client_golang/prometheus"
@@ -75,7 +73,6 @@ func main() {
 	logFile := flag.String("log-file", "", "Optional path to write JSON logs to (in addition to stderr text output).")
 	proxyAddr := flag.String("proxy-addr", "0.0.0.0:8080", "Address for the cache proxy listener")
 	metricsAddr := flag.String("metrics-addr", "0.0.0.0:9090", "Address for the Prometheus metrics endpoint")
-	statsInterval := flag.Duration("stats", 0, "Print a metrics summary on this interval (e.g. 10s). 0 disables.")
 	maxCacheBytes := flag.Int64("max-cache-bytes", 256<<20, "Total byte budget for the in-memory cache.")
 	maxBodyBytes := flag.Int64("max-body-bytes", 1<<20, "Maximum response body size to cache per request.")
 	tlsCADir := flag.String("tls-ca-dir", "", "Directory containing tls.crt and tls.key for TLS MITM. Empty disables TLS interception.")
@@ -91,7 +88,7 @@ func main() {
 			slog.Error("open log file", "path", *logFile, "err", err)
 			os.Exit(1)
 		}
-		defer f.Close()
+		defer f.Close() //nolint:errcheck
 		handlers = append(handlers, slog.NewJSONHandler(f, opts))
 		slog.Info("logging to file", "path", *logFile, "format", "json")
 	}
@@ -108,7 +105,8 @@ func main() {
 		slog.Error("load BPF objects", "err", err)
 		os.Exit(1)
 	}
-	defer objs.Close()
+	defer objs.Close() //nolint:errcheck
+	slog.Debug("bpf objects loaded.")
 
 	// Populate the proxy redirect target so the TC ingress program knows
 	// where to send intercepted connections.
@@ -118,6 +116,7 @@ func main() {
 	if redirectIP == nil {
 		redirectIP = net.IPv4(127, 0, 0, 1).To4()
 	}
+	slog.Debug("redirect IP for bpf", "ip", redirectIP)
 	_, portStr, err := net.SplitHostPort(*proxyAddr)
 	if err != nil {
 		slog.Error("parse proxy-addr", "err", err)
@@ -159,8 +158,7 @@ func main() {
 		slog.Debug("BPF kernel logs available", "cmd", "sudo cat /sys/kernel/debug/tracing/trace_pipe")
 	}
 
-	var c cache.Cache
-	c = cache.New(*maxCacheBytes, func(n int) {
+	c := cache.New(*maxCacheBytes, func(n int) {
 		metrics.Evictions.Add(float64(n))
 	})
 
@@ -235,45 +233,10 @@ func main() {
 		}
 	}()
 
-	if *statsInterval > 0 {
-		go printStatsSummary(ctx, *statsInterval, *metricsAddr)
-	}
-
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 	slog.Info("shutting down")
-}
-
-func printStatsSummary(ctx context.Context, interval time.Duration, metricsAddr string) {
-	client := &http.Client{Timeout: 5 * time.Second}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			resp, err := client.Get("http://" + metricsAddr + "/metrics")
-			if err != nil {
-				slog.Warn("stats fetch failed", "err", err)
-				continue
-			}
-			var lines []string
-			sc := bufio.NewScanner(resp.Body)
-			for sc.Scan() {
-				line := sc.Text()
-				if strings.HasPrefix(line, "kcache_") && !strings.HasPrefix(line, "#") {
-					lines = append(lines, "  "+line)
-				}
-			}
-			resp.Body.Close()
-			if len(lines) > 0 {
-				slog.Info("stats\n" + strings.Join(lines, "\n"))
-			}
-		}
-	}
 }
 
 func parseLogLevel(s string) slog.Level {

@@ -160,7 +160,7 @@ func TestKeyIsHexSHA256(t *testing.T) {
 		t.Fatalf("expected 64-char hex key, got len %d", len(k))
 	}
 	for _, c := range k {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			t.Fatalf("key contains non-hex character: %c", c)
 		}
 	}

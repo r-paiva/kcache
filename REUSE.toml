@@ -1,0 +1,9 @@
+version = 1
+
+# bpf2go regenerates these Go bindings from bpf/kcache.c on every `go generate`,
+# stripping any injected SPDX header. Declare their licensing here instead so
+# REUSE compliance survives regeneration.
+[[annotations]]
+path = ["kcache_bpfeb.go", "kcache_bpfel.go"]
+SPDX-FileCopyrightText = "Copyright (c) 2026, the kcache developers"
+SPDX-License-Identifier = "Apache-2.0"
