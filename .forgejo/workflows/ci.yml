@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    runs-on: codeberg-tiny-lazy
+    runs-on: codeberg-small-lazy
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -19,7 +19,7 @@ jobs:
       - run: go test ./internal/...
 
   reuse:
-    runs-on: codeberg-tiny-lazy
+    runs-on: codeberg-small-lazy
     steps:
       - uses: actions/checkout@v4
       - run: python3 -m pip install --user --break-system-packages reuse
