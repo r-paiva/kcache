@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	"kache/api/v1alpha1"
+	"codeberg.org/latch/latch/api/v1alpha1"
 )
 
 // ── DeepCopyObject ────────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ func TestDeepCopyObject_CachePolicyList_Empty(t *testing.T) {
 func TestCachePolicy_JSONRoundTrip(t *testing.T) {
 	original := v1alpha1.CachePolicy{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "kcache.io/v1alpha1",
+			APIVersion: "latch.io/v1alpha1",
 			Kind:       "CachePolicy",
 		},
 		ObjectMeta: metav1.ObjectMeta{
@@ -185,8 +185,8 @@ func TestCachePolicyList_JSONRoundTrip(t *testing.T) {
 // ── GroupVersion / scheme ─────────────────────────────────────────────────────
 
 func TestGroupVersion(t *testing.T) {
-	if v1alpha1.GroupVersion.Group != "kcache.io" {
-		t.Errorf("group: got %q, want %q", v1alpha1.GroupVersion.Group, "kcache.io")
+	if v1alpha1.GroupVersion.Group != "latch.io" {
+		t.Errorf("group: got %q, want %q", v1alpha1.GroupVersion.Group, "latch.io")
 	}
 	if v1alpha1.GroupVersion.Version != "v1alpha1" {
 		t.Errorf("version: got %q, want %q", v1alpha1.GroupVersion.Version, "v1alpha1")
@@ -200,7 +200,7 @@ func TestAddToScheme(t *testing.T) {
 	}
 
 	gvk := schema.GroupVersionKind{
-		Group:   "kcache.io",
+		Group:   "latch.io",
 		Version: "v1alpha1",
 		Kind:    "CachePolicy",
 	}
@@ -218,7 +218,7 @@ func TestAddToScheme_ListRegistered(t *testing.T) {
 	_ = v1alpha1.AddToScheme(s)
 
 	gvk := schema.GroupVersionKind{
-		Group:   "kcache.io",
+		Group:   "latch.io",
 		Version: "v1alpha1",
 		Kind:    "CachePolicyList",
 	}

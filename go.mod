@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
-// SPDX-FileCopyrightText: Copyright (c) 2026, the k-cache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
-module kache
+module codeberg.org/latch/latch
 
 go 1.26.0
 

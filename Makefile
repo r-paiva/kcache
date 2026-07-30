@@ -1,13 +1,13 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+# SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 #
 # SPDX-License-Identifier: Apache-2.0
 
-BINARY      := kcache
+BINARY      := latch
 METRICS     := http://localhost:9090/metrics
 FLAGS       :=
 
 DOCKER_USER   ?= rpaiva0
-IMAGE_NAME    ?= kcache
+IMAGE_NAME    ?= latch
 IMAGE_TAG     ?= dev
 VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -23,7 +23,7 @@ generate:
 	go generate ./...
 
 build: generate
-	go build -ldflags "-X kache/internal/version.Version=$(VERSION)" -o $(BINARY) .
+	go build -ldflags "-X codeberg.org/latch/latch/internal/version.Version=$(VERSION)" -o $(BINARY) .
 
 test:
 	go test ./internal/...
@@ -60,14 +60,14 @@ reuse-lint:
 
 reuse-fix:
 	reuse annotate --license Apache-2.0 \
-	  --copyright "Copyright (c) 2026, the kcache developers"
+	  --copyright "Copyright (c) 2026, the latch developers"
 
 deps:
 	sudo apt-get install -y clang llvm libbpf-dev linux-libc-dev linux-headers-$$(uname -r)
 
 clean:
 	rm -f $(BINARY)
-	rm -f kcache_bpfel.go kcache_bpfeb.go kcache_bpfel.o kcache_bpfeb.o
+	rm -f latch_bpfel.go latch_bpfeb.go latch_bpfel.o latch_bpfeb.o
 	rm -f coverage.out coverage.html
 
 # ── Local run ─────────────────────────────────────────────────────────────────
@@ -85,11 +85,11 @@ trace:
 	sudo cat /sys/kernel/debug/tracing/trace_pipe
 
 metrics:
-	@curl -sf $(METRICS) | grep -E '^(kcache_|#)' || \
-		echo "metrics endpoint not reachable — is kcache running?"
+	@curl -sf $(METRICS) | grep -E '^(latch_|#)' || \
+		echo "metrics endpoint not reachable — is latch running?"
 
 metrics-watch:
-	watch -n2 "curl -sf $(METRICS) | grep -E '^kcache_' | grep -v '^#'"
+	watch -n2 "curl -sf $(METRICS) | grep -E '^latch_' | grep -v '^#'"
 
 # ── Image ─────────────────────────────────────────────────────────────────────
 
@@ -124,4 +124,4 @@ help:
 	@echo "  make image              local docker build"
 	@echo "  make image-push         multi-arch push to Docker Hub"
 	@echo ""
-	@echo "Charts: kcache-deploy repo   Deploy/testing: kcache-homelab repo"
+	@echo "Charts: latch-charts repo   Deploy/testing: latch-homelab repo"

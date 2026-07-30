@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -26,12 +26,12 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 
-	v1alpha1 "kache/api/v1alpha1"
-	intpolicy "kache/internal/policy"
+	v1alpha1 "codeberg.org/latch/latch/api/v1alpha1"
+	intpolicy "codeberg.org/latch/latch/internal/policy"
 )
 
 var cachePolicyGVR = schema.GroupVersionResource{
-	Group:    "kcache.io",
+	Group:    "latch.io",
 	Version:  "v1alpha1",
 	Resource: "cachepolicies",
 }

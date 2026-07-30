@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,51 +11,51 @@ import (
 
 var (
 	Requests = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "kcache_requests_total",
+		Name: "latch_requests_total",
 		Help: "Total HTTP requests handled by the cache proxy.",
 	}, []string{"host", "method", "cache", "path"})
 
 	ResponseSize = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "kcache_response_size_bytes",
+		Name:    "latch_response_size_bytes",
 		Help:    "HTTP response body size in bytes.",
 		Buckets: prometheus.ExponentialBuckets(256, 4, 10),
 	}, []string{"host", "method", "path"})
 
 	RequestSize = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "kcache_request_size_bytes",
+		Name:    "latch_request_size_bytes",
 		Help:    "HTTP request body size in bytes.",
 		Buckets: prometheus.ExponentialBuckets(256, 4, 10),
 	}, []string{"host", "method"})
 
 	UpstreamLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "kcache_upstream_latency_seconds",
+		Name:    "latch_upstream_latency_seconds",
 		Help:    "Latency of upstream HTTP calls on cache misses.",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"host", "path"})
 
 	HitLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "kcache_hit_latency_seconds",
+		Name:    "latch_hit_latency_seconds",
 		Help:    "Latency of cache-hit responses.",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"host", "path"})
 
 	Evictions = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "kcache_cache_evictions_total",
+		Name: "latch_cache_evictions_total",
 		Help: "Total number of cache entries evicted.",
 	})
 
 	BPFRedirects = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "kcache_bpf_redirects_total",
+		Name: "latch_bpf_redirects_total",
 		Help: "Total TCP connections redirected by the BPF hook.",
 	})
 
 	CacheSkipsBodyTooLarge = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "kcache_cache_skip_body_too_large_total",
+		Name: "latch_cache_skip_body_too_large_total",
 		Help: "Responses forwarded but not cached because the body exceeded the per-response size limit.",
 	}, []string{"host"})
 
 	CacheSkipsRequestBodyTooLarge = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "kcache_cache_skip_request_body_too_large_total",
+		Name: "latch_cache_skip_request_body_too_large_total",
 		Help: "Requests forwarded but not cached because the request body exceeded the buffering limit.",
 	}, []string{"host"})
 )

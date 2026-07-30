@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -16,8 +16,8 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	clientcache "k8s.io/client-go/tools/cache"
 
-	v1alpha1 "kache/api/v1alpha1"
-	intpolicy "kache/internal/policy"
+	v1alpha1 "codeberg.org/latch/latch/api/v1alpha1"
+	intpolicy "codeberg.org/latch/latch/internal/policy"
 )
 
 type fakeUnstructured struct{ content map[string]any }

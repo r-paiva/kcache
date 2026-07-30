@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"testing"
 
-	"kache/internal/cachekey"
+	"codeberg.org/latch/latch/internal/cachekey"
 )
 
 func req(method, url string) *http.Request {
