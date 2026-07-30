@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"kache/internal/cache"
-	"kache/internal/policy"
-	"kache/internal/proxy"
+	"codeberg.org/latch/latch/internal/cache"
+	"codeberg.org/latch/latch/internal/policy"
+	"codeberg.org/latch/latch/internal/proxy"
 )
 
 // mockOrigDst always resolves to the given address, simulating BPF map lookup

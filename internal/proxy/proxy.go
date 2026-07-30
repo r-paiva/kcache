@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -20,11 +20,11 @@ import (
 	"sync"
 	"time"
 
-	"kache/internal/cache"
-	"kache/internal/cachekey"
-	"kache/internal/metrics"
-	"kache/internal/policy"
-	"kache/internal/tlsmitm"
+	"codeberg.org/latch/latch/internal/cache"
+	"codeberg.org/latch/latch/internal/cachekey"
+	"codeberg.org/latch/latch/internal/metrics"
+	"codeberg.org/latch/latch/internal/policy"
+	"codeberg.org/latch/latch/internal/tlsmitm"
 )
 
 const (

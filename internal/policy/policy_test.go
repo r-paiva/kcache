@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"kache/internal/policy"
+	"codeberg.org/latch/latch/internal/policy"
 )
 
 func match(p *policy.Policy, host string, port uint16, method string) *policy.Rule {

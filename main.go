@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -21,15 +21,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"kache/internal/cache"
-	"kache/internal/iface"
-	"kache/internal/k8s"
-	"kache/internal/metrics"
-	"kache/internal/origdst"
-	"kache/internal/policy"
-	"kache/internal/proxy"
-	"kache/internal/tlsmitm"
-	"kache/internal/version"
+	"codeberg.org/latch/latch/internal/cache"
+	"codeberg.org/latch/latch/internal/iface"
+	"codeberg.org/latch/latch/internal/k8s"
+	"codeberg.org/latch/latch/internal/metrics"
+	"codeberg.org/latch/latch/internal/origdst"
+	"codeberg.org/latch/latch/internal/policy"
+	"codeberg.org/latch/latch/internal/proxy"
+	"codeberg.org/latch/latch/internal/tlsmitm"
+	"codeberg.org/latch/latch/internal/version"
 )
 
 type multiHandler []slog.Handler
@@ -93,15 +93,15 @@ func main() {
 		slog.Info("logging to file", "path", *logFile, "format", "json")
 	}
 	slog.SetDefault(slog.New(handlers))
-	slog.Info("starting kcache", "version", version.Version)
+	slog.Info("starting latch", "version", version.Version)
 
 	if err := rlimit.RemoveMemlock(); err != nil {
 		slog.Error("remove memlock", "err", err)
 		os.Exit(1)
 	}
 
-	var objs kcacheObjects
-	if err := loadKcacheObjects(&objs, nil); err != nil {
+	var objs latchObjects
+	if err := loadLatchObjects(&objs, nil); err != nil {
 		slog.Error("load BPF objects", "err", err)
 		os.Exit(1)
 	}
@@ -166,11 +166,11 @@ func main() {
 	// rather than pushed on every mutation — zero overhead on the hot path.
 	prometheus.MustRegister(
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-			Name: "kcache_cache_entries_total",
+			Name: "latch_cache_entries_total",
 			Help: "Current number of entries in the cache.",
 		}, func() float64 { return float64(c.Len()) }),
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-			Name: "kcache_cache_size_bytes",
+			Name: "latch_cache_size_bytes",
 			Help: "Total bytes stored in the cache (body + headers).",
 		}, func() float64 { return float64(c.SizeBytes()) }),
 	)

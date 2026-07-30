@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -139,7 +139,7 @@ func (m *Manager) attach(l netlink.Link) error {
 
 	var ls []linkCloser
 
-	// TCX (kernel ≥6.6) puts kcache in the same chain as Cilium; fall back to cls_bpf.
+	// TCX (kernel ≥6.6) puts latch in the same chain as Cilium; fall back to cls_bpf.
 	ing, egr, err := attachTCX(idx, m.ingress, m.egress)
 	if err != nil {
 		slog.Debug("TCX not available, falling back to cls_bpf", "iface", name, "err", err)
@@ -159,7 +159,7 @@ func (m *Manager) attach(l netlink.Link) error {
 }
 
 // link.Head() is required — Cilium's TC programs return TC_ACT_REDIRECT which
-// terminates the chain, so kcache must run before them.
+// terminates the chain, so latch must run before them.
 func attachTCX(ifindex int, ingress, egress *ebpf.Program) (link.Link, link.Link, error) {
 	ing, err := link.AttachTCX(link.TCXOptions{
 		Interface: ifindex,
@@ -189,10 +189,10 @@ func attachLegacy(ifindex int, ingress, egress *ebpf.Program) error {
 	if err := ensureClsact(ifindex); err != nil {
 		return fmt.Errorf("clsact qdisc: %w", err)
 	}
-	if err := replaceFilter(ifindex, ingress, netlink.HANDLE_MIN_INGRESS, "kcache/ingress"); err != nil {
+	if err := replaceFilter(ifindex, ingress, netlink.HANDLE_MIN_INGRESS, "latch/ingress"); err != nil {
 		return fmt.Errorf("ingress filter: %w", err)
 	}
-	if err := replaceFilter(ifindex, egress, netlink.HANDLE_MIN_EGRESS, "kcache/egress"); err != nil {
+	if err := replaceFilter(ifindex, egress, netlink.HANDLE_MIN_EGRESS, "latch/egress"); err != nil {
 		return fmt.Errorf("egress filter: %w", err)
 	}
 	return nil

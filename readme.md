@@ -1,25 +1,25 @@
 <!--
-SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# kcache
+# latch
 
 > **Early alpha.** Expect breaking changes.
 
 A transparent, node-level HTTP/HTTPS cache for Kubernetes. Traffic is intercepted at the TC BPF layer on each node — pods make normal requests and responses are served from cache without any sidecar or code change.
 
-This repository holds the kcache source (Go + BPF). Related repos:
+This repository holds the latch source (Go + BPF). Related repos:
 
-- **[kcache-charts](https://codeberg.org/rpaiva/kcache-charts)** — the official Helm chart and `CachePolicy` examples.
+- **[latch-charts](https://codeberg.org/latch/latch-charts)** — the official Helm chart and `CachePolicy` examples.
 
 ## How it works
 
-kcache runs as a DaemonSet. On each node it:
+latch runs as a DaemonSet. On each node it:
 
 1. Attaches a TC BPF program to every pod veth interface it discovers.
-2. Intercepts outbound HTTP (port 80) and HTTPS (port 443) connections and redirects them to the kcache proxy process.
+2. Intercepts outbound HTTP (port 80) and HTTPS (port 443) connections and redirects them to the latch proxy process.
 3. For HTTP: checks the cache and replies on a hit, or forwards to upstream and stores the response on a miss.
 4. For HTTPS: if a matching `CachePolicy` exists, performs TLS MITM using a cluster CA — the proxy terminates the client TLS, caches the response, and re-establishes TLS to the upstream. Connections with no matching policy are spliced through raw without interception.
 
@@ -29,10 +29,10 @@ Cache behaviour is controlled by `CachePolicy` CRDs — scoped by namespace and 
 
 ```sh
 # Container image (amd64 + arm64)
-docker pull rpaiva0/kcache:dev
+docker pull rpaiva0/latch:dev
 
-# Helm chart — packaged in the kcache-deploy repo
-helm install kcache oci://registry-1.docker.io/rpaiva0/kcache
+# Helm chart — packaged in the latch-charts repo
+helm install latch oci://registry-1.docker.io/rpaiva0/latch
 ```
 
 ## Requirements
@@ -43,7 +43,7 @@ helm install kcache oci://registry-1.docker.io/rpaiva0/kcache
 ## CachePolicy example
 
 ```yaml
-apiVersion: kcache.io/v1alpha1
+apiVersion: latch.io/v1alpha1
 kind: CachePolicy
 metadata:
   name: my-app
@@ -67,13 +67,13 @@ A pod with no matching policy is unaffected — traffic passes through transpare
 
 ## TLS MITM setup
 
-To enable HTTPS caching, kcache needs a CA certificate to sign per-SNI leaf certs on demand. Pods must trust this CA so they accept the MITM cert.
+To enable HTTPS caching, latch needs a CA certificate to sign per-SNI leaf certs on demand. Pods must trust this CA so they accept the MITM cert.
 
 1. Create a Kubernetes Secret holding the CA `tls.crt` / `tls.key`.
-2. Set `kcache.tls.caSecretName` in your Helm values to that Secret's name.
+2. Set `latch.tls.caSecretName` in your Helm values to that Secret's name.
 3. Mount the CA cert into your workloads (or add it to their trust store) so they accept the MITM leaf certs.
 
-See the `kcache` chart's `values.yaml` in **kcache-deploy** for the full TLS configuration reference. The **kcache-homelab** repo has `make gen-ca` / `make gen-backend-tls` helpers that generate a CA and a CA-signed backend cert for local testing.
+See the `latch` chart's `values.yaml` in **latch-charts** for the full TLS configuration reference. The **latch-homelab** repo has `make gen-ca` / `make gen-backend-tls` helpers that generate a CA and a CA-signed backend cert for local testing.
 
 ## Flags
 
@@ -90,10 +90,10 @@ See the `kcache` chart's `values.yaml` in **kcache-deploy** for the full TLS con
 
 ## Metrics
 
-Prometheus metrics are exposed at `:9090/metrics`. All kcache metrics are prefixed with `kcache_`.
+Prometheus metrics are exposed at `:9090/metrics`. All latch metrics are prefixed with `latch_`.
 
 ```sh
-curl -s http://localhost:9090/metrics | grep '^kcache_'
+curl -s http://localhost:9090/metrics | grep '^latch_'
 # or
 make metrics
 ```

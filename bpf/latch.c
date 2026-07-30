@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+ * SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -126,7 +126,7 @@ int tc_ingress(struct __sk_buff *skb)
 	bpf_skb_store_bytes(skb, ip_daddr_off, &new_dst_ip, sizeof(new_dst_ip), 0);
 	bpf_skb_store_bytes(skb, tcp_dport_off, &new_dst_pt, sizeof(new_dst_pt), 0);
 
-	bpf_printk("kcache tc_ingress: %x:%u → proxy %x:%u",
+	bpf_printk("latch tc_ingress: %x:%u → proxy %x:%u",
 	           src_ip_h, ck.src_port, tgt->ip, tgt->port);
 	return TC_ACT_OK;
 }

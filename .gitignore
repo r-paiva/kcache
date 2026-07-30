@@ -1,10 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, the k-cache developers
+# SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 #
 # SPDX-License-Identifier: Apache-2.0
 
-/kcache
-kcache_bpfel.go
-kcache_bpfeb.go
+/latch
+latch_bpfel.go
+latch_bpfeb.go
 *.o
 docs/
 NEXT_PHASE.md

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the kcache developers
+// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -12,7 +12,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/labels"
 
-	"kache/internal/cachekey"
+	"codeberg.org/latch/latch/internal/cachekey"
 )
 
 type Rule struct {
