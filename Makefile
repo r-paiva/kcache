@@ -6,14 +6,20 @@ BINARY      := latch
 METRICS     := http://localhost:9090/metrics
 FLAGS       :=
 
-DOCKER_USER   ?= rpaiva0
+# Registry host + namespace. Docker Hub user by default; override for Artifactory,
+# e.g. REGISTRY=artifactory.example.com/latch-docker
+REGISTRY      ?= rpaiva0
 IMAGE_NAME    ?= latch
-IMAGE_TAG     ?= dev
+# VERSION is the source of truth. git describe gives provenance for dev builds
+# (0.1.0-2-gd42b37b-dirty) and the clean tag on a released commit (0.2.0).
+# Override to label a build however you like: make image VERSION=rui-test-1
 VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+IMAGE_TAG     ?= $(VERSION)
+IMAGE         := $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 
 .PHONY: all build generate test test-v test-race cover cover-html fmt vet lint tidy clean \
         run run-debug run-stats trace metrics metrics-watch deps \
-        image image-push reuse-lint reuse-fix help
+        image image-push print-image version reuse-lint reuse-fix help
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
@@ -96,14 +102,23 @@ metrics-watch:
 image:
 	docker build \
 	  --build-arg VERSION=$(VERSION) \
-	  -t $(IMAGE_NAME):$(IMAGE_TAG) .
+	  -t $(IMAGE) .
+	@echo "built $(IMAGE)"
 
 image-push:
 	docker buildx build --platform linux/amd64,linux/arm64 \
 	  --build-arg VERSION=$(VERSION) \
-	  -t $(DOCKER_USER)/$(IMAGE_NAME):$(IMAGE_TAG) \
+	  -t $(IMAGE) \
 	  --push \
 	  .
+
+# Print the fully-qualified image ref so the local k3s import + deploy can reuse
+# the exact tag that was built, instead of guessing.
+print-image:
+	@echo $(IMAGE)
+
+version:
+	@echo $(VERSION)
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 
@@ -120,8 +135,11 @@ help:
 	@echo "  make run-debug          build + run with debug logging"
 	@echo "  make trace              tail BPF kernel trace pipe"
 	@echo ""
-	@echo "Image (DOCKER_USER=$(DOCKER_USER) IMAGE_TAG=$(IMAGE_TAG)):"
-	@echo "  make image              local docker build"
-	@echo "  make image-push         multi-arch push to Docker Hub"
+	@echo "Image ($(IMAGE)):"
+	@echo "  make image              local docker build (tag follows VERSION)"
+	@echo "  make image-push         multi-arch push to REGISTRY"
+	@echo "  make print-image        print registry/name:tag for scripting import+deploy"
+	@echo "  make version            print resolved VERSION"
+	@echo "  override: make image VERSION=rui-test-1  |  REGISTRY=artifactory.example.com/latch"
 	@echo ""
 	@echo "Charts: latch-charts repo   Deploy/testing: latch-homelab repo"

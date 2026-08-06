@@ -6,12 +6,9 @@ package iface
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"sync"
-	"syscall"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -24,54 +21,21 @@ type linkCloser interface {
 	Close() error
 }
 
-// DefaultIfacePattern matches pod-facing veth interfaces by CNI naming convention:
-//   Flannel/containerd:  veth + 8 hex chars  (e.g. veth1a2b3c4d)
-//   Cilium veth mode:    lxc  + 12 hex chars (e.g. lxcaf76531335cb)
-//   Calico:              cali + 10 hex chars (e.g. cali1a2b3c4d5e)
-// Cilium's internal interfaces (cilium_net, cilium_host) are excluded — attaching
-// TC programs there breaks Cilium's packet forwarding.
-//
-// NOTE: on nodes that run both k8s (Flannel/containerd) and Docker, the veth
-// pattern also matches Docker container interfaces because Docker uses the same
-// naming scheme. On Cilium clusters use the narrower "lxc[0-9a-f]{8,}" pattern
-// via the --iface-pattern flag to restrict interception to k8s pods only.
-const DefaultIfacePattern = `^(veth[0-9a-f]{7,}|lxc[0-9a-f]{8,}|cali[0-9a-f]{7,})$`
-
 type Manager struct {
 	ingress *ebpf.Program
 	egress  *ebpf.Program
-	podRe   *regexp.Regexp
 
 	mu    sync.Mutex
 	links map[int][]linkCloser // ifindex → open TCX links for that interface
 }
 
-// New creates a Manager that attaches TC BPF programs to interfaces whose names
-// match pattern. pattern must be a valid Go regexp; wrap it in ^(...)$ to anchor
-// it. Pass DefaultIfacePattern unless you need CNI-specific narrowing.
-func New(ingress, egress *ebpf.Program, pattern string) *Manager {
+// New creates a Manager; Reconcile decides which veths get TC BPF (policy-gated).
+func New(ingress, egress *ebpf.Program) *Manager {
 	return &Manager{
 		ingress: ingress,
 		egress:  egress,
-		podRe:   regexp.MustCompile(pattern),
 		links:   make(map[int][]linkCloser),
 	}
-}
-
-func (m *Manager) AttachExisting() error {
-	links, err := netlink.LinkList()
-	if err != nil {
-		return fmt.Errorf("list links: %w", err)
-	}
-	for _, l := range links {
-		if !m.isPodVeth(l) {
-			continue
-		}
-		if err := m.attach(l); err != nil {
-			slog.Warn("attach TC to existing veth", "iface", l.Attrs().Name, "err", err)
-		}
-	}
-	return nil
 }
 
 func (m *Manager) Watch(ctx context.Context) {
@@ -91,15 +55,7 @@ func (m *Manager) Watch(ctx context.Context) {
 			if !ok {
 				return
 			}
-			switch update.Header.Type {
-			case unix.RTM_NEWLINK:
-				if !m.isPodVeth(update.Link) {
-					continue
-				}
-				if err := m.attach(update.Link); err != nil {
-					slog.Warn("attach TC to new veth", "iface", update.Link.Attrs().Name, "err", err)
-				}
-			case unix.RTM_DELLINK:
+			if update.Header.Type == unix.RTM_DELLINK {
 				m.detach(update.Link.Attrs().Index, update.Link.Attrs().Name)
 			}
 		}
@@ -108,7 +64,7 @@ func (m *Manager) Watch(ctx context.Context) {
 
 func (m *Manager) detach(ifindex int, name string) {
 	// Kernel already removed TC programs when the interface was destroyed;
-	// release the link FDs and free the ifindex for reuse by a future pod.
+	// release the link FDs and free the ifindex for reuse by a future pod
 	m.mu.Lock()
 	ls, ok := m.links[ifindex]
 	delete(m.links, ifindex)
@@ -122,14 +78,7 @@ func (m *Manager) detach(ifindex int, name string) {
 	slog.Info("TC BPF detached", "iface", name)
 }
 
-func (m *Manager) isPodVeth(l netlink.Link) bool {
-	return l.Type() == "veth" && m.podRe.MatchString(l.Attrs().Name)
-}
-
-func (m *Manager) attach(l netlink.Link) error {
-	idx := l.Attrs().Index
-	name := l.Attrs().Name
-
+func (m *Manager) attachIndex(idx int, name string) error {
 	m.mu.Lock()
 	if _, already := m.links[idx]; already {
 		m.mu.Unlock()
@@ -137,29 +86,64 @@ func (m *Manager) attach(l netlink.Link) error {
 	}
 	m.mu.Unlock()
 
-	var ls []linkCloser
-
-	// TCX (kernel ≥6.6) puts latch in the same chain as Cilium; fall back to cls_bpf.
 	ing, egr, err := attachTCX(idx, m.ingress, m.egress)
 	if err != nil {
-		slog.Debug("TCX not available, falling back to cls_bpf", "iface", name, "err", err)
-		if err2 := attachLegacy(idx, m.ingress, m.egress); err2 != nil {
-			return fmt.Errorf("attach TC (tcx: %v, legacy: %w)", err, err2)
-		}
-	} else {
-		ls = append(ls, ing, egr)
+		return err
 	}
 
 	m.mu.Lock()
-	m.links[idx] = ls
+	m.links[idx] = []linkCloser{ing, egr}
 	m.mu.Unlock()
 
 	slog.Info("TC BPF attached", "iface", name)
 	return nil
 }
 
-// link.Head() is required — Cilium's TC programs return TC_ACT_REDIRECT which
-// terminates the chain, so latch must run before them.
+// Reconcile attaches TC BPF to the desired host veth ifindexes and detaches the
+// rest. desired is the set of veths for pods a CachePolicy matches
+func (m *Manager) Reconcile(desired map[int]struct{}) {
+	m.mu.Lock()
+	current := make(map[int]struct{}, len(m.links))
+	for idx := range m.links {
+		current[idx] = struct{}{}
+	}
+	m.mu.Unlock()
+
+	var attached, detached int
+	for idx := range desired {
+		if _, ok := current[idx]; ok {
+			continue
+		}
+		if err := m.attachIndex(idx, ifaceName(idx)); err != nil {
+			slog.Warn("reconcile: attach", "ifindex", idx, "err", err)
+			continue
+		}
+		attached++
+	}
+	for idx := range current {
+		if _, ok := desired[idx]; ok {
+			continue
+		}
+		m.detach(idx, ifaceName(idx))
+		detached++
+	}
+	if attached > 0 || detached > 0 {
+		slog.Info("reconcile: attachment updated",
+			"attached", attached, "detached", detached, "desired", len(desired))
+	}
+}
+
+// ifaceName resolves ifindex → name for logging; "if<idx>" if the link is gone.
+func ifaceName(idx int) string {
+	if l, err := netlink.LinkByIndex(idx); err == nil {
+		return l.Attrs().Name
+	}
+	return fmt.Sprintf("if%d", idx)
+}
+
+// attachTCX attaches via TCX. link.Head() is
+// required — Cilium's TC programs return TC_ACT_REDIRECT which terminates the
+// chain, so latch must run before them
 func attachTCX(ifindex int, ingress, egress *ebpf.Program) (link.Link, link.Link, error) {
 	ing, err := link.AttachTCX(link.TCXOptions{
 		Interface: ifindex,
@@ -183,55 +167,4 @@ func attachTCX(ifindex int, ingress, egress *ebpf.Program) (link.Link, link.Link
 	}
 
 	return ing, egr, nil
-}
-
-func attachLegacy(ifindex int, ingress, egress *ebpf.Program) error {
-	if err := ensureClsact(ifindex); err != nil {
-		return fmt.Errorf("clsact qdisc: %w", err)
-	}
-	if err := replaceFilter(ifindex, ingress, netlink.HANDLE_MIN_INGRESS, "latch/ingress"); err != nil {
-		return fmt.Errorf("ingress filter: %w", err)
-	}
-	if err := replaceFilter(ifindex, egress, netlink.HANDLE_MIN_EGRESS, "latch/egress"); err != nil {
-		return fmt.Errorf("egress filter: %w", err)
-	}
-	return nil
-}
-
-func ensureClsact(ifindex int) error {
-	qdisc := &netlink.GenericQdisc{
-		QdiscAttrs: netlink.QdiscAttrs{
-			LinkIndex: ifindex,
-			Handle:    netlink.MakeHandle(0xffff, 0),
-			Parent:    netlink.HANDLE_CLSACT,
-		},
-		QdiscType: "clsact",
-	}
-	err := netlink.QdiscAdd(qdisc)
-	if err != nil && !errors.Is(err, syscall.EEXIST) {
-		return err
-	}
-	return nil
-}
-
-func replaceFilter(ifindex int, prog *ebpf.Program, parent uint32, label string) error {
-	filter := &netlink.BpfFilter{
-		FilterAttrs: netlink.FilterAttrs{
-			LinkIndex: ifindex,
-			Parent:    parent,
-			Handle:    netlink.MakeHandle(0, 1),
-			Protocol:  unix.ETH_P_ALL,
-			Priority:  1,
-		},
-		Fd:           prog.FD(),
-		Name:         label,
-		DirectAction: true,
-	}
-	err := netlink.FilterReplace(filter)
-	if err != nil {
-		if addErr := netlink.FilterAdd(filter); addErr != nil && !errors.Is(addErr, syscall.EEXIST) {
-			return addErr
-		}
-	}
-	return nil
 }

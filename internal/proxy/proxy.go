@@ -95,8 +95,6 @@ func (p *Proxy) Serve(ln net.Listener) error {
 	}
 }
 
-// peekConn wraps a net.Conn so that Read is served from r first (holding bytes
-// already peeked from the underlying conn), then falls through to the conn.
 type peekConn struct {
 	net.Conn
 	r io.Reader

@@ -18,7 +18,7 @@ This repository holds the latch source (Go + BPF). Related repos:
 
 latch runs as a DaemonSet. On each node it:
 
-1. Attaches a TC BPF program to every pod veth interface it discovers.
+1. Resolves each pod to its host-side veth (via the host procfs mounted read-only at `/host/proc`) and attaches a TC BPF program only to veths of pods a `CachePolicy` matches.
 2. Intercepts outbound HTTP (port 80) and HTTPS (port 443) connections and redirects them to the latch proxy process.
 3. For HTTP: checks the cache and replies on a hit, or forwards to upstream and stores the response on a miss.
 4. For HTTPS: if a matching `CachePolicy` exists, performs TLS MITM using a cluster CA — the proxy terminates the client TLS, caches the response, and re-establishes TLS to the upstream. Connections with no matching policy are spliced through raw without interception.
@@ -37,8 +37,7 @@ helm install latch oci://registry-1.docker.io/rpaiva0/latch
 
 ## Requirements
 
-- Linux kernel 6.6+
-- Tested with CNIs: Cilium, Flannel, Calico
+- Linux kernel 6.6+ required — latch attaches via TCX
 
 ## CachePolicy example
 
@@ -84,7 +83,7 @@ See the `latch` chart's `values.yaml` in **latch-charts** for the full TLS confi
 | `-log-level` | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `-log-file` | _(disabled)_ | Path to write JSON logs to in addition to stderr |
 | `-tls-ca-dir` | _(disabled)_ | Directory with `tls.crt` / `tls.key` for TLS MITM |
-| `-iface-pattern` | auto | Regexp matching host-side veth names to attach BPF to |
+| `-proc-root` | `/proc` | Procfs used to resolve pod netns → host veth; set to `/host/proc` in-cluster |
 | `-max-cache-bytes` | `256 MiB` | Total in-memory cache budget |
 | `-max-body-bytes` | `1 MiB` | Max response body size to cache per request |
 
