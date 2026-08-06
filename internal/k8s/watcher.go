@@ -50,6 +50,16 @@ type Watcher struct {
 	polMap  map[string][]v1alpha1.CachePolicy
 
 	onChange func(*intpolicy.Policy)
+	notify   func() // fired when pod or policy state changes the desired attach set
+}
+
+// SetReconcileTrigger registers a callback fired whenever pod or policy state changes
+func (w *Watcher) SetReconcileTrigger(fn func()) { w.notify = fn }
+
+func (w *Watcher) fireNotify() {
+	if w.notify != nil {
+		w.notify()
+	}
 }
 
 func New(onChange func(*intpolicy.Policy)) (*Watcher, error) {
@@ -124,12 +134,12 @@ func (w *Watcher) onPodAdd(obj any) {
 		Labels:    pod.Labels,
 	}
 	w.mu.Unlock()
+	w.fireNotify()
 }
 
 func (w *Watcher) onPodDelete(obj any) {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
-		// Informer wraps evicted objects in a tombstone.
 		if d, ok := obj.(cache.DeletedFinalStateUnknown); ok {
 			pod, ok = d.Obj.(*corev1.Pod)
 			if !ok {
@@ -142,6 +152,7 @@ func (w *Watcher) onPodDelete(obj any) {
 	w.mu.Lock()
 	delete(w.podMeta, pod.Status.PodIP)
 	w.mu.Unlock()
+	w.fireNotify()
 }
 
 func (w *Watcher) watchCachePolicies(ctx context.Context) {
@@ -295,6 +306,7 @@ func (w *Watcher) rebuild() {
 	})
 
 	w.onChange(intpolicy.New(rules))
+	w.fireNotify()
 }
 
 func selectorLen(sel labels.Selector) int {
@@ -315,55 +327,4 @@ func unstructuredToPolicy(obj map[string]any) (v1alpha1.CachePolicy, error) {
 		return v1alpha1.CachePolicy{}, err
 	}
 	return cp, nil
-}
-
-func (w *Watcher) PolicyForPod(namespace string, podLabels map[string]string) []intpolicy.Rule {
-	w.mu.RLock()
-	cps := append([]v1alpha1.CachePolicy{}, w.polMap[namespace]...)
-	w.mu.RUnlock()
-
-	set := labels.Set(podLabels)
-	var matched []v1alpha1.CachePolicy
-	for _, cp := range cps {
-		sel, err := metav1.LabelSelectorAsSelector(&cp.Spec.PodSelector)
-		if err != nil {
-			continue
-		}
-		if sel.Matches(set) {
-			matched = append(matched, cp)
-		}
-	}
-	if len(matched) == 0 {
-		return nil
-	}
-
-	sort.Slice(matched, func(i, j int) bool {
-		si, _ := metav1.LabelSelectorAsSelector(&matched[i].Spec.PodSelector)
-		sj, _ := metav1.LabelSelectorAsSelector(&matched[j].Spec.PodSelector)
-		ri := selectorLen(si)
-		rj := selectorLen(sj)
-		if ri != rj {
-			return ri > rj
-		}
-		return matched[i].Name < matched[j].Name
-	})
-
-	cp := matched[0]
-	rules := make([]intpolicy.Rule, 0, len(cp.Spec.Rules))
-	sel, _ := metav1.LabelSelectorAsSelector(&cp.Spec.PodSelector)
-	for _, r := range cp.Spec.Rules {
-		rules = append(rules, intpolicy.Rule{
-			Namespace:    namespace,
-			PodSelector:  sel,
-			Host:         r.Host,
-			Port:         r.Port,
-			Methods:      r.Methods,
-			Paths:        r.Paths,
-			TTL:          r.TTL.Duration,
-			MaxBodyBytes: r.MaxBodyBytes,
-			VaryHeaders:  r.VaryHeaders,
-			CacheBody:    r.CacheBody,
-		})
-	}
-	return rules
 }

@@ -79,6 +79,22 @@ func (p *Policy) Match(namespace string, podLabels map[string]string, host strin
 	return nil
 }
 
+// Covered reports whether any rule applies to a pod in namespace with podLabels
+func (p *Policy) Covered(namespace string, podLabels map[string]string) bool {
+	podSet := labels.Set(podLabels)
+	for i := range p.rules {
+		r := &p.rules[i]
+		if r.Namespace != "" && r.Namespace != namespace {
+			continue
+		}
+		if r.PodSelector != nil && !r.PodSelector.Empty() && !r.PodSelector.Matches(podSet) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // HasRuleForHostPort reports whether any rule targets host on port, ignoring
 // method, path, namespace and pod selector. Used as a pre-MITM gate before
 // the HTTP request headers are available.

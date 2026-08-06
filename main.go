@@ -15,7 +15,9 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,6 +28,7 @@ import (
 	"codeberg.org/latch/latch/internal/k8s"
 	"codeberg.org/latch/latch/internal/metrics"
 	"codeberg.org/latch/latch/internal/origdst"
+	"codeberg.org/latch/latch/internal/podveth"
 	"codeberg.org/latch/latch/internal/policy"
 	"codeberg.org/latch/latch/internal/proxy"
 	"codeberg.org/latch/latch/internal/tlsmitm"
@@ -76,7 +79,7 @@ func main() {
 	maxCacheBytes := flag.Int64("max-cache-bytes", 256<<20, "Total byte budget for the in-memory cache.")
 	maxBodyBytes := flag.Int64("max-body-bytes", 1<<20, "Maximum response body size to cache per request.")
 	tlsCADir := flag.String("tls-ca-dir", "", "Directory containing tls.crt and tls.key for TLS MITM. Empty disables TLS interception.")
-	ifacePattern := flag.String("iface-pattern", iface.DefaultIfacePattern, "Regexp matching host-side veth names to attach TC BPF to. Use 'lxc[0-9a-f]{8,}' for Cilium-only to avoid intercepting Docker container traffic.")
+	procRoot := flag.String("proc-root", "/proc", "Procfs mount used to resolve pod netns → host veth. Set to /host/proc when the host procfs is mounted read-only into the pod.")
 	flag.Parse()
 
 	level := parseLogLevel(*logLevel)
@@ -142,18 +145,12 @@ func main() {
 	}
 	slog.Info("BPF proxy target configured", "ip", redirectIP.String(), "port", redirectPort)
 
-	// Attach TC BPF programs to all existing pod veths and watch for new or disconnected ones.
-	mgr := iface.New(objs.TcIngress, objs.TcEgress, *ifacePattern)
-	if err := mgr.AttachExisting(); err != nil {
-		slog.Error("attach TC to existing veths", "err", err)
-		os.Exit(1)
-	}
+	mgr := iface.New(objs.TcIngress, objs.TcEgress)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go mgr.Watch(ctx)
 
-	slog.Info("TC BPF programs attached to pod veths")
 	if level == slog.LevelDebug {
 		slog.Debug("BPF kernel logs available", "cmd", "sudo cat /sys/kernel/debug/tracing/trace_pipe")
 	}
@@ -196,23 +193,36 @@ func main() {
 		slog.Info("TLS MITM disabled: no --tls-ca-dir configured")
 	}
 
-	// Try to connect to the k8s API for CachePolicy support.
-	// Declare p before the watcher so the onChange closure captures
-	// the variable, not a value — p will be assigned before the watcher
-	// calls onChange for the first time.
 	var p *proxy.Proxy
+
+	var currentPolicy atomic.Pointer[policy.Policy]
+	currentPolicy.Store(policy.New(nil))
 
 	watcher, err := k8s.New(func(pol *policy.Policy) {
 		p.SetPolicy(pol)
+		currentPolicy.Store(pol)
 		slog.Info("cache policy reloaded")
 	})
 	if err != nil {
-		slog.Warn("k8s watcher unavailable, running without CachePolicy support", "err", err)
-		p = proxy.New(c, policy.New(nil), origDstFn, nil, *maxBodyBytes, ca)
-	} else {
-		p = proxy.New(c, policy.New(nil), origDstFn, watcher.NamespaceLookup, *maxBodyBytes, ca)
-		go watcher.Run(ctx)
+		slog.Error("k8s watcher unavailable, cannot run policy-gated attachment", "err", err)
+		os.Exit(1)
 	}
+	p = proxy.New(c, currentPolicy.Load(), origDstFn, watcher.NamespaceLookup, *maxBodyBytes, ca)
+
+	resolver := podveth.NewResolver(*procRoot)
+	covered := func(ns string, podLabels map[string]string) bool {
+		return currentPolicy.Load().Covered(ns, podLabels)
+	}
+	trigger := make(chan struct{}, 1)
+	watcher.SetReconcileTrigger(func() {
+		select {
+		case trigger <- struct{}{}:
+		default:
+		}
+	})
+	go watcher.Run(ctx)
+	go podveth.Enforce(ctx, resolver, 30*time.Second, trigger, watcher.NamespaceLookup, covered, mgr)
+	slog.Info("policy-gated attachment running")
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())

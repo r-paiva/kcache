@@ -220,7 +220,6 @@ func TestHandlePolicyEvent_Deleted(t *testing.T) {
 func TestHandlePolicyEvent_DeleteNonExistentIsNoop(t *testing.T) {
 	w := makeWatcher(nil)
 	cp := makePolicy("ghost", "default", nil, time.Minute)
-	// Should not panic.
 	w.handlePolicyEvent(watch.Event{
 		Type:   watch.Deleted,
 		Object: &fakeUnstructured{content: policyToUnstructured(cp)},
@@ -338,84 +337,6 @@ func TestRebuild_InvalidSelectorSkipped(t *testing.T) {
 
 	if r := got.Match("default", nil, "*", 80, "GET", "/"); r != nil {
 		t.Error("policy with invalid selector should be skipped")
-	}
-}
-
-func TestPolicyForPod_NoMatchingNamespace(t *testing.T) {
-	w := makeWatcher(nil)
-	w.polMap["other"] = []v1alpha1.CachePolicy{makePolicy("p", "other", nil, time.Minute)}
-
-	if rules := w.PolicyForPod("default", nil); rules != nil {
-		t.Errorf("expected nil for unknown namespace, got %d rules", len(rules))
-	}
-}
-
-func TestPolicyForPod_EmptySelectorMatchesAll(t *testing.T) {
-	w := makeWatcher(nil)
-	w.polMap["default"] = []v1alpha1.CachePolicy{makePolicy("p", "default", nil, time.Minute)}
-
-	rules := w.PolicyForPod("default", map[string]string{"app": "anything"})
-	if len(rules) == 0 {
-		t.Error("empty selector should match all pods")
-	}
-}
-
-func TestPolicyForPod_LabelMatchReturnsRules(t *testing.T) {
-	w := makeWatcher(nil)
-	cp := makePolicy("p", "default", &metav1.LabelSelector{
-		MatchLabels: map[string]string{"app": "api"},
-	}, time.Minute)
-	w.polMap["default"] = []v1alpha1.CachePolicy{cp}
-
-	rules := w.PolicyForPod("default", map[string]string{"app": "api"})
-	if len(rules) == 0 {
-		t.Error("expected rules for matching pod labels")
-	}
-}
-
-func TestPolicyForPod_LabelMismatchReturnsNil(t *testing.T) {
-	w := makeWatcher(nil)
-	cp := makePolicy("p", "default", &metav1.LabelSelector{
-		MatchLabels: map[string]string{"app": "api"},
-	}, time.Minute)
-	w.polMap["default"] = []v1alpha1.CachePolicy{cp}
-
-	rules := w.PolicyForPod("default", map[string]string{"app": "frontend"})
-	if rules != nil {
-		t.Error("expected nil when pod labels don't match the selector")
-	}
-}
-
-func TestPolicyForPod_MostSpecificWins(t *testing.T) {
-	w := makeWatcher(nil)
-	broad := makePolicy("broad", "default", nil, time.Minute)
-	narrow := makePolicy("narrow", "default", &metav1.LabelSelector{
-		MatchLabels: map[string]string{"app": "api"},
-	}, 5*time.Minute)
-	w.polMap["default"] = []v1alpha1.CachePolicy{broad, narrow}
-
-	rules := w.PolicyForPod("default", map[string]string{"app": "api"})
-	if len(rules) == 0 {
-		t.Fatal("expected rules")
-	}
-	if rules[0].TTL != 5*time.Minute {
-		t.Errorf("narrow policy should win; got TTL=%v", rules[0].TTL)
-	}
-}
-
-func TestPolicyForPod_TieBreakByName(t *testing.T) {
-	w := makeWatcher(nil)
-	w.polMap["default"] = []v1alpha1.CachePolicy{
-		makePolicy("zzz", "default", nil, time.Hour),
-		makePolicy("aaa", "default", nil, 30*time.Second),
-	}
-
-	rules := w.PolicyForPod("default", nil)
-	if len(rules) == 0 {
-		t.Fatal("expected rules")
-	}
-	if rules[0].TTL != 30*time.Second {
-		t.Errorf("alphabetically first name (aaa, TTL=30s) should win; got %v", rules[0].TTL)
 	}
 }
 

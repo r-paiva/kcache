@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
+
 	"codeberg.org/latch/latch/internal/policy"
 )
 
@@ -139,6 +141,33 @@ func TestNamespaceScoping(t *testing.T) {
 	}
 	if r := p.Match("team-c", nil, "svc", 80, "GET", "/"); r != nil {
 		t.Fatal("expected no match for unknown namespace")
+	}
+}
+
+func TestCovers(t *testing.T) {
+	apiSelector := labels.SelectorFromSet(labels.Set{"app": "api"})
+	p := policy.New([]policy.Rule{
+		{Namespace: "team-a", PodSelector: apiSelector, Host: "*", Port: 80},
+		{Namespace: "team-b", Host: "*", Port: 80}, // no selector → all pods in ns
+	})
+
+	tests := []struct {
+		name   string
+		ns     string
+		labels map[string]string
+		want   bool
+	}{
+		{"namespace + selector match", "team-a", map[string]string{"app": "api"}, true},
+		{"namespace match, selector mismatch", "team-a", map[string]string{"app": "web"}, false},
+		{"namespace mismatch", "team-c", map[string]string{"app": "api"}, false},
+		{"empty selector matches any pod in namespace", "team-b", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := p.Covered(tt.ns, tt.labels); got != tt.want {
+				t.Errorf("Covers(%q, %v) = %v, want %v", tt.ns, tt.labels, got, tt.want)
+			}
+		})
 	}
 }
 
