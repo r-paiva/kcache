@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
+// SPDX-FileCopyrightText: 2026 The latch Contributors
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -6,26 +6,21 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
-	"flag"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/cilium/ebpf/rlimit"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-
+	"codeberg.org/latch/latch/bpf"
 	"codeberg.org/latch/latch/internal/cache"
+	"codeberg.org/latch/latch/internal/config"
+	"codeberg.org/latch/latch/internal/constants"
 	"codeberg.org/latch/latch/internal/iface"
 	"codeberg.org/latch/latch/internal/k8s"
+	"codeberg.org/latch/latch/internal/logging"
 	"codeberg.org/latch/latch/internal/metrics"
 	"codeberg.org/latch/latch/internal/origdst"
 	"codeberg.org/latch/latch/internal/podveth"
@@ -35,162 +30,45 @@ import (
 	"codeberg.org/latch/latch/internal/version"
 )
 
-type multiHandler []slog.Handler
-
-func (m multiHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	for _, h := range m {
-		if h.Enabled(ctx, level) {
-			return true
-		}
-	}
-	return false
-}
-
-func (m multiHandler) Handle(ctx context.Context, r slog.Record) error {
-	for _, h := range m {
-		if h.Enabled(ctx, r.Level) {
-			_ = h.Handle(ctx, r.Clone())
-		}
-	}
-	return nil
-}
-
-func (m multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	out := make(multiHandler, len(m))
-	for i, h := range m {
-		out[i] = h.WithAttrs(attrs)
-	}
-	return out
-}
-
-func (m multiHandler) WithGroup(name string) slog.Handler {
-	out := make(multiHandler, len(m))
-	for i, h := range m {
-		out[i] = h.WithGroup(name)
-	}
-	return out
-}
-
 func main() {
-	logLevel := flag.String("log-level", "info", "Log level: debug, info, warn, error")
-	logFile := flag.String("log-file", "", "Optional path to write JSON logs to (in addition to stderr text output).")
-	proxyAddr := flag.String("proxy-addr", "0.0.0.0:8080", "Address for the cache proxy listener")
-	metricsAddr := flag.String("metrics-addr", "0.0.0.0:9090", "Address for the Prometheus metrics endpoint")
-	maxCacheBytes := flag.Int64("max-cache-bytes", 256<<20, "Total byte budget for the in-memory cache.")
-	maxBodyBytes := flag.Int64("max-body-bytes", 1<<20, "Maximum response body size to cache per request.")
-	tlsCADir := flag.String("tls-ca-dir", "", "Directory containing tls.crt and tls.key for TLS MITM. Empty disables TLS interception.")
-	procRoot := flag.String("proc-root", "/proc", "Procfs mount used to resolve pod netns → host veth. Set to /host/proc when the host procfs is mounted read-only into the pod.")
-	flag.Parse()
-
-	level := parseLogLevel(*logLevel)
-	opts := &slog.HandlerOptions{Level: level}
-	handlers := multiHandler{slog.NewTextHandler(os.Stderr, opts)}
-	if *logFile != "" {
-		f, err := os.OpenFile(*logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			slog.Error("open log file", "path", *logFile, "err", err)
-			os.Exit(1)
-		}
-		defer f.Close() //nolint:errcheck
-		handlers = append(handlers, slog.NewJSONHandler(f, opts))
-		slog.Info("logging to file", "path", *logFile, "format", "json")
-	}
-	slog.SetDefault(slog.New(handlers))
+	cfg := config.New()
+	logging.New(cfg.LogLevel)
 	slog.Info("starting latch", "version", version.Version)
 
-	if err := rlimit.RemoveMemlock(); err != nil {
-		slog.Error("remove memlock", "err", err)
-		os.Exit(1)
-	}
+	bpfProgram := bpf.Load(cfg.ProxyAddr)
+	defer bpfProgram.Close() //nolint:errcheck
 
-	var objs latchObjects
-	if err := loadLatchObjects(&objs, nil); err != nil {
-		slog.Error("load BPF objects", "err", err)
-		os.Exit(1)
-	}
-	defer objs.Close() //nolint:errcheck
-	slog.Debug("bpf objects loaded.")
-
-	// Populate the proxy redirect target so the TC ingress program knows
-	// where to send intercepted connections.
-	// NODE_IP is injected via the downward API in Kubernetes; falls back to
-	// 127.0.0.1 for local testing.
-	redirectIP := net.ParseIP(os.Getenv("NODE_IP")).To4()
-	if redirectIP == nil {
-		redirectIP = net.IPv4(127, 0, 0, 1).To4()
-	}
-	slog.Debug("redirect IP for bpf", "ip", redirectIP)
-	_, portStr, err := net.SplitHostPort(*proxyAddr)
-	if err != nil {
-		slog.Error("parse proxy-addr", "err", err)
-		os.Exit(1)
-	}
-	redirectPort, err := strconv.ParseUint(portStr, 10, 16)
-	if err != nil {
-		slog.Error("parse proxy port", "err", err)
-		os.Exit(1)
-	}
-
-	var proxyTgt struct {
-		IP   uint32
-		Port uint16
-		Pad  uint16
-	}
-	proxyTgt.IP = binary.BigEndian.Uint32(redirectIP)
-	proxyTgt.Port = uint16(redirectPort)
-	tgtKey := uint32(0)
-	if err := objs.ProxyTgtMap.Put(&tgtKey, &proxyTgt); err != nil {
-		slog.Error("set BPF proxy target", "err", err)
-		os.Exit(1)
-	}
-	slog.Info("BPF proxy target configured", "ip", redirectIP.String(), "port", redirectPort)
-
-	mgr := iface.New(objs.TcIngress, objs.TcEgress)
+	mgr := iface.New(bpfProgram.TcIngress, bpfProgram.TcEgress)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go mgr.Watch(ctx)
 
-	if level == slog.LevelDebug {
-		slog.Debug("BPF kernel logs available", "cmd", "sudo cat /sys/kernel/debug/tracing/trace_pipe")
-	}
+	slog.Debug("BPF kernel logs available", "cmd", "sudo cat /sys/kernel/debug/tracing/trace_pipe")
 
-	c := cache.New(*maxCacheBytes, func(n int) {
+	cacheStore := cache.New(cfg.MaxCacheBytes, func(n int) {
 		metrics.Evictions.Add(float64(n))
 	})
-
-	// CacheEntries and CacheSizeBytes are read on every Prometheus scrape
-	// rather than pushed on every mutation — zero overhead on the hot path.
-	prometheus.MustRegister(
-		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-			Name: "latch_cache_entries_total",
-			Help: "Current number of entries in the cache.",
-		}, func() float64 { return float64(c.Len()) }),
-		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-			Name: "latch_cache_size_bytes",
-			Help: "Total bytes stored in the cache (body + headers).",
-		}, func() float64 { return float64(c.SizeBytes()) }),
-	)
 
 	origDstFn := func(conn net.Conn) (net.IP, uint16, error) {
 		peer, ok := conn.RemoteAddr().(*net.TCPAddr)
 		if !ok {
 			return nil, 0, nil
 		}
-		return origdst.Lookup(objs.OrigDst, peer)
+		return origdst.Lookup(bpfProgram.OrigDst, peer)
 	}
 
 	var ca *tlsmitm.CA
-	if *tlsCADir != "" {
+	if cfg.TlsCaDir != "" {
 		var caErr error
-		ca, caErr = tlsmitm.LoadCA(*tlsCADir)
+		ca, caErr = tlsmitm.LoadCA(cfg.TlsCaDir)
 		if caErr != nil {
-			slog.Warn("TLS MITM disabled: failed to load CA", "dir", *tlsCADir, "err", caErr)
+			slog.Warn("TLS MITM disabled: failed to load CA", "dir", cfg.TlsCaDir, "err", caErr)
 		} else {
-			slog.Info("TLS MITM enabled", "ca-dir", *tlsCADir)
+			slog.Info("TLS MITM enabled", "ca-dir", cfg.TlsCaDir)
 		}
 	} else {
-		slog.Info("TLS MITM disabled: no --tls-ca-dir configured")
+		slog.Info("TLS MITM disabled")
 	}
 
 	var p *proxy.Proxy
@@ -205,11 +83,11 @@ func main() {
 	})
 	if err != nil {
 		slog.Error("k8s watcher unavailable, cannot run policy-gated attachment", "err", err)
-		os.Exit(1)
+		os.Exit(constants.ExitInitK8SWatcherError)
 	}
-	p = proxy.New(c, currentPolicy.Load(), origDstFn, watcher.NamespaceLookup, *maxBodyBytes, ca)
+	p = proxy.New(cacheStore, currentPolicy.Load(), origDstFn, watcher.NamespaceLookup, cfg.MaxBodyBytes, ca)
 
-	resolver := podveth.NewResolver(*procRoot)
+	resolver := podveth.NewResolver(cfg.ProcRoot)
 	covered := func(ns string, podLabels map[string]string) bool {
 		return currentPolicy.Load().Covered(ns, podLabels)
 	}
@@ -220,44 +98,23 @@ func main() {
 		default:
 		}
 	})
+
 	go watcher.Run(ctx)
 	go podveth.Enforce(ctx, resolver, 30*time.Second, trigger, watcher.NamespaceLookup, covered, mgr)
 	slog.Info("policy-gated attachment running")
 
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
 	go func() {
-		slog.Info("metrics listening", "addr", *metricsAddr)
-		if err := http.ListenAndServe(*metricsAddr, mux); err != nil {
-			slog.Error("metrics server", "err", err)
+		if err := p.ListenAndServe(cfg.ProxyAddr); err != nil {
+			slog.Error("proxy", "err", err)
+			os.Exit(constants.ExitInitProxyError)
 		}
 	}()
 
-	go func() {
-		if err := p.ListenAndServe(*proxyAddr); err != nil {
-			slog.Error("proxy", "err", err)
-			os.Exit(1)
-		}
-	}()
+	metrics.StartMetricsServer(cacheStore, cfg.MetricsAddr)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 	slog.Info("shutting down")
-}
-
-func parseLogLevel(s string) slog.Level {
-	switch strings.ToLower(s) {
-	case "debug":
-		return slog.LevelDebug
-	case "warn", "warning":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
+	os.Exit(constants.ExitSuccess)
 }

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
+// SPDX-FileCopyrightText: 2026 The latch Contributors
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -276,11 +276,8 @@ func TestRebuild_SinglePolicy(t *testing.T) {
 	w.rebuild()
 
 	r := got.Match("default", nil, "any-host", 80, "GET", "/")
-	if r == nil {
-		t.Fatal("expected a matching rule")
-	}
-	if r.TTL != 2*time.Minute {
-		t.Errorf("TTL: got %v, want 2m", r.TTL)
+	if r == nil || r.TTL != 2*time.Minute {
+		t.Fatalf("expected a matching rule with TTL 2m, got %+v", r)
 	}
 }
 
@@ -293,11 +290,8 @@ func TestRebuild_MultipleNamespaces(t *testing.T) {
 
 	rA := got.Match("ns-a", nil, "*", 80, "GET", "/")
 	rB := got.Match("ns-b", nil, "*", 80, "GET", "/")
-	if rA == nil || rB == nil {
-		t.Fatal("expected rules for both namespaces")
-	}
-	if rA.TTL != time.Minute || rB.TTL != 30*time.Second {
-		t.Errorf("TTLs: ns-a=%v ns-b=%v", rA.TTL, rB.TTL)
+	if rA == nil || rB == nil || rA.TTL != time.Minute || rB.TTL != 30*time.Second {
+		t.Fatalf("expected ns-a=1m ns-b=30s, got rA=%+v rB=%+v", rA, rB)
 	}
 }
 
@@ -315,11 +309,8 @@ func TestRebuild_MoreSpecificSelectorTakesPriority(t *testing.T) {
 
 	podLabels := map[string]string{"app": "api"}
 	r := got.Match("default", podLabels, "*", 80, "GET", "/")
-	if r == nil {
-		t.Fatal("expected a rule to match")
-	}
-	if r.TTL != 5*time.Minute {
-		t.Errorf("narrow policy (TTL=5m) should win; got TTL=%v", r.TTL)
+	if r == nil || r.TTL != 5*time.Minute {
+		t.Fatalf("narrow policy (TTL=5m) should win, got %+v", r)
 	}
 }
 

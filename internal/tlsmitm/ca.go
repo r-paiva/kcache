@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
+// SPDX-FileCopyrightText: 2026 The latch Contributors
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -35,7 +35,7 @@ type cachedCert struct {
 type CA struct {
 	cert   *x509.Certificate
 	key    any
-	cache  sync.Map         // sni string → *cachedCert
+	cache  sync.Map // sni string → *cachedCert
 	flight singleflight.Group
 }
 

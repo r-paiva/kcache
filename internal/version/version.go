@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
+// SPDX-FileCopyrightText: 2026 The latch Contributors
 //
 // SPDX-License-Identifier: Apache-2.0
 
