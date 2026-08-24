@@ -4,6 +4,6 @@ version = 1
 # stripping any injected SPDX header. Declare their licensing here instead so
 # REUSE compliance survives regeneration.
 [[annotations]]
-path = ["latch_bpfeb.go", "latch_bpfel.go"]
-SPDX-FileCopyrightText = "Copyright (c) 2026, the latch developers"
+path = ["bpf/latch_bpfeb.go", "bpf/latch_bpfel.go"]
+SPDX-FileCopyrightText = "The latch Contributors"
 SPDX-License-Identifier = "Apache-2.0"

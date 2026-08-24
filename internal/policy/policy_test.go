@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
+// SPDX-FileCopyrightText: 2026 The latch Contributors
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -27,11 +27,8 @@ func rules() []policy.Rule {
 func TestExactHostMatch(t *testing.T) {
 	p := policy.New(rules())
 	r := match(p, "api.example.com", 80, "GET")
-	if r == nil {
-		t.Fatal("expected match")
-	}
-	if r.TTL != time.Minute {
-		t.Fatalf("unexpected TTL: %v", r.TTL)
+	if r == nil || r.TTL != time.Minute {
+		t.Fatalf("expected match with TTL 1m, got %+v", r)
 	}
 }
 
@@ -76,11 +73,8 @@ func TestFirstMatchWins(t *testing.T) {
 		{Host: "api.example.com", Port: 80, TTL: 30 * time.Second},
 	})
 	r := match(p, "api.example.com", 80, "GET")
-	if r == nil {
-		t.Fatal("expected a match")
-	}
-	if r.TTL != time.Minute {
-		t.Fatalf("first rule (TTL=1m) should win, got TTL=%v", r.TTL)
+	if r == nil || r.TTL != time.Minute {
+		t.Fatalf("first rule (TTL=1m) should win, got %+v", r)
 	}
 }
 

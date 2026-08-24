@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
+# SPDX-FileCopyrightText: 2026 The latch Contributors
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -26,7 +26,7 @@ IMAGE         := $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 all: build
 
 generate:
-	go generate ./...
+	go generate ./bpf...
 
 build: generate
 	go build -ldflags "-X codeberg.org/latch/latch/internal/version.Version=$(VERSION)" -o $(BINARY) .
@@ -66,14 +66,14 @@ reuse-lint:
 
 reuse-fix:
 	reuse annotate --license Apache-2.0 \
-	  --copyright "Copyright (c) 2026, the latch developers"
+	  --copyright "The latch Contributors" -r .
 
 deps:
 	sudo apt-get install -y clang llvm libbpf-dev linux-libc-dev linux-headers-$$(uname -r)
 
 clean:
 	rm -f $(BINARY)
-	rm -f latch_bpfel.go latch_bpfeb.go latch_bpfel.o latch_bpfeb.o
+	rm -f bpf/latch_bpfel.go bpf/latch_bpfeb.go bpf/latch_bpfel.o bpf/latch_bpfeb.o
 	rm -f coverage.out coverage.html
 
 # ── Local run ─────────────────────────────────────────────────────────────────

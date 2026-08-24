@@ -1,6 +1,3 @@
-// SPDX-FileCopyrightText: 2026 Rui Paiva <kcache.catapult615@passfwd.com>
-// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
-//
 // SPDX-License-Identifier: Apache-2.0
 
 module codeberg.org/latch/latch
@@ -8,6 +5,7 @@ module codeberg.org/latch/latch
 go 1.26.0
 
 require (
+	github.com/caarlos0/env/v11 v11.4.1
 	github.com/cilium/ebpf v0.21.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/vishvananda/netlink v1.3.1

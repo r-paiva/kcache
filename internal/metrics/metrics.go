@@ -1,12 +1,17 @@
-// SPDX-FileCopyrightText: Copyright (c) 2026, the latch developers
+// SPDX-FileCopyrightText: 2026 The latch Contributors
 //
 // SPDX-License-Identifier: Apache-2.0
 
 package metrics
 
 import (
+	"log/slog"
+	"net/http"
+
+	"codeberg.org/latch/latch/internal/cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -59,3 +64,28 @@ var (
 		Help: "Requests forwarded but not cached because the request body exceeded the buffering limit.",
 	}, []string{"host"})
 )
+
+func StartMetricsServer(cache cache.Cache, metricsAddr string) {
+	prometheus.MustRegister(
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "latch_cache_entries_total",
+			Help: "Current number of entries in the cache.",
+		}, func() float64 { return float64(cache.Len()) }),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "latch_cache_size_bytes",
+			Help: "Total bytes stored in the cache (body + headers).",
+		}, func() float64 { return float64(cache.SizeBytes()) }),
+	)
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	go func() {
+		slog.Info("metrics listening", "addr", metricsAddr)
+		if err := http.ListenAndServe(metricsAddr, mux); err != nil {
+			slog.Error("metrics server", "err", err)
+		}
+	}()
+}
