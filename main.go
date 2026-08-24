@@ -16,8 +16,8 @@ import (
 
 	"codeberg.org/latch/latch/bpf"
 	"codeberg.org/latch/latch/internal/cache"
+	"codeberg.org/latch/latch/internal/config"
 	"codeberg.org/latch/latch/internal/constants"
-	"codeberg.org/latch/latch/internal/env"
 	"codeberg.org/latch/latch/internal/iface"
 	"codeberg.org/latch/latch/internal/k8s"
 	"codeberg.org/latch/latch/internal/logging"
@@ -31,11 +31,11 @@ import (
 )
 
 func main() {
-	config := env.New()
-	logging.New(config.LogLevel)
+	cfg := config.New()
+	logging.New(cfg.LogLevel)
 	slog.Info("starting latch", "version", version.Version)
 
-	bpfProgram := bpf.Load(config.ProxyAddr)
+	bpfProgram := bpf.Load(cfg.ProxyAddr)
 	defer bpfProgram.Close() //nolint:errcheck
 
 	mgr := iface.New(bpfProgram.TcIngress, bpfProgram.TcEgress)
@@ -46,7 +46,7 @@ func main() {
 
 	slog.Debug("BPF kernel logs available", "cmd", "sudo cat /sys/kernel/debug/tracing/trace_pipe")
 
-	cacheStore := cache.New(config.MaxCacheBytes, func(n int) {
+	cacheStore := cache.New(cfg.MaxCacheBytes, func(n int) {
 		metrics.Evictions.Add(float64(n))
 	})
 
@@ -59,13 +59,13 @@ func main() {
 	}
 
 	var ca *tlsmitm.CA
-	if config.TlsCaDir != "" {
+	if cfg.TlsCaDir != "" {
 		var caErr error
-		ca, caErr = tlsmitm.LoadCA(config.TlsCaDir)
+		ca, caErr = tlsmitm.LoadCA(cfg.TlsCaDir)
 		if caErr != nil {
-			slog.Warn("TLS MITM disabled: failed to load CA", "dir", config.TlsCaDir, "err", caErr)
+			slog.Warn("TLS MITM disabled: failed to load CA", "dir", cfg.TlsCaDir, "err", caErr)
 		} else {
-			slog.Info("TLS MITM enabled", "ca-dir", config.TlsCaDir)
+			slog.Info("TLS MITM enabled", "ca-dir", cfg.TlsCaDir)
 		}
 	} else {
 		slog.Info("TLS MITM disabled")
@@ -85,9 +85,9 @@ func main() {
 		slog.Error("k8s watcher unavailable, cannot run policy-gated attachment", "err", err)
 		os.Exit(constants.ExitInitK8SWatcherError)
 	}
-	p = proxy.New(cacheStore, currentPolicy.Load(), origDstFn, watcher.NamespaceLookup, config.MaxBodyBytes, ca)
+	p = proxy.New(cacheStore, currentPolicy.Load(), origDstFn, watcher.NamespaceLookup, cfg.MaxBodyBytes, ca)
 
-	resolver := podveth.NewResolver(config.ProcRoot)
+	resolver := podveth.NewResolver(cfg.ProcRoot)
 	covered := func(ns string, podLabels map[string]string) bool {
 		return currentPolicy.Load().Covered(ns, podLabels)
 	}
@@ -104,13 +104,13 @@ func main() {
 	slog.Info("policy-gated attachment running")
 
 	go func() {
-		if err := p.ListenAndServe(config.ProxyAddr); err != nil {
+		if err := p.ListenAndServe(cfg.ProxyAddr); err != nil {
 			slog.Error("proxy", "err", err)
 			os.Exit(constants.ExitInitProxyError)
 		}
 	}()
 
-	metrics.StartMetricsServer(cacheStore, config.MetricsAddr)
+	metrics.StartMetricsServer(cacheStore, cfg.MetricsAddr)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)

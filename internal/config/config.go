@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package env
+package config
 
 import (
 	"log/slog"
@@ -12,7 +12,7 @@ import (
 	"github.com/caarlos0/env/v11"
 )
 
-type EnvConfig struct {
+type Config struct {
 	LogLevel      string `env:"LOG_LEVEL" envDefault:"info"`
 	ProxyAddr     string `env:"PROXY_ADDR" envDefault:"0.0.0.0:8080"`
 	MetricsAddr   string `env:"METRICS_ADDR" envDefault:"0.0.0.0:9090"`
@@ -22,13 +22,13 @@ type EnvConfig struct {
 	ProcRoot      string `env:"PROC_ROOT" envDefault:"/proc"`
 }
 
-func New() EnvConfig {
-	var cfg EnvConfig
+func New() Config {
+	var cfg Config
 
 	err := env.Parse(&cfg)
 	if err != nil {
 		slog.Error("load env config", "err", err)
-		os.Exit(constants.ExitInitEnvConfigError)
+		os.Exit(constants.ExitInitConfigError)
 	}
 
 	return cfg

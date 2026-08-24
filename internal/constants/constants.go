@@ -8,6 +8,6 @@ const (
 	ExitSuccess             = 0
 	ExitEbpfLoadError       = 1
 	ExitInitProxyError      = 2
-	ExitInitEnvConfigError  = 3
+	ExitInitConfigError     = 3
 	ExitInitK8SWatcherError = 4
 )
